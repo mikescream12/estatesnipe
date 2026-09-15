@@ -78,5 +78,14 @@
   "smsSendCta": "Text me this alert",
   "smsSending": "Sending…",
   "smsSent": "Sent · sid",
-  "smsFailed": "Could not send SMS."
+  "smsFailed": "Could not send SMS.",
+  "scanNow": "Scan now",
+  "scanScanning": "Scanning sales…",
+  "scanDone": "Scan complete",
+  "scanMatches": "matches",
+  "scanFailed": "Scan failed — try again.",
+  "scanNeedWatches": "Add a watch first (or type a keyword above).",
+  "scanNoMatches": "No keyword matches in this scan. Sources may still have listings.",
+  "scanSources": "Sources",
+  "scanNew": "new"
 }

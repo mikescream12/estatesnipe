@@ -78,5 +78,14 @@
   "smsSendCta": "Envíame esta alerta",
   "smsSending": "Enviando…",
   "smsSent": "Enviado · sid",
-  "smsFailed": "No se pudo enviar el SMS."
+  "smsFailed": "No se pudo enviar el SMS.",
+  "scanNow": "Escanear ahora",
+  "scanScanning": "Escaneando ventas…",
+  "scanDone": "Escaneo listo",
+  "scanMatches": "coincidencias",
+  "scanFailed": "Falló el escaneo — reintenta.",
+  "scanNeedWatches": "Añade una alerta primero (o escribe una palabra clave).",
+  "scanNoMatches": "Sin coincidencias en este escaneo. Las fuentes pueden tener ventas.",
+  "scanSources": "Fuentes",
+  "scanNew": "nuevo"
 }

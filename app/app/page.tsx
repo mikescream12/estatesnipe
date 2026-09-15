@@ -10,9 +10,41 @@ import { useLocale } from "@/lib/LocaleContext";
 import {
   addWatch,
   deleteWatch,
+  loadProfile,
   loadWatches,
   type Watch,
 } from "@/lib/watches";
+
+type ScanMatch = {
+  listing: {
+    id: string;
+    title: string;
+    url: string;
+    sourceId: string;
+    city?: string | null;
+    distanceMiles?: number | null;
+    photos?: Array<{ url: string; thumbnailUrl?: string }>;
+  };
+  matchedWatch: string;
+  matchedKeywords: string[];
+  score: number;
+  isNew: boolean;
+};
+
+type ScanResult = {
+  ok: boolean;
+  error?: string;
+  listingCount?: number;
+  matchCount?: number;
+  newMatchCount?: number;
+  matches?: ScanMatch[];
+  sources?: Array<{
+    sourceId: string;
+    ok: boolean;
+    listingCount: number;
+    reason?: string;
+  }>;
+};
 
 export default function AppHomePage() {
   const { messages } = useLocale();
@@ -21,9 +53,14 @@ export default function AppHomePage() {
   const [zip, setZip] = useState("75201");
   const [radiusMi, setRadiusMi] = useState("25");
   const [toast, setToast] = useState("");
+  const [scanning, setScanning] = useState(false);
+  const [scanResult, setScanResult] = useState<ScanResult | null>(null);
 
   useEffect(() => {
     setWatches(loadWatches());
+    const profile = loadProfile();
+    if (profile?.zip) setZip(profile.zip);
+    if (profile?.radiusMi) setRadiusMi(String(profile.radiusMi));
   }, []);
 
   function onAdd(e: React.FormEvent) {
@@ -44,6 +81,60 @@ export default function AppHomePage() {
     setWatches(deleteWatch(id));
   }
 
+  async function onScanNow() {
+    const profile = loadProfile();
+    const scanZip =
+      (profile?.zip || zip || watches[0]?.zip || "75201").trim() || "75201";
+    const scanRadius =
+      profile?.radiusMi ||
+      watches[0]?.radiusMi ||
+      Math.max(1, parseInt(radiusMi, 10) || 25);
+    const watchTexts =
+      watches.length > 0
+        ? watches.map((w) => w.keyword)
+        : keyword.trim()
+          ? [keyword.trim()]
+          : [];
+
+    if (watchTexts.length === 0) {
+      setToast(messages.scanNeedWatches);
+      setTimeout(() => setToast(""), 3000);
+      return;
+    }
+
+    setScanning(true);
+    setScanResult(null);
+    setToast("");
+    try {
+      const res = await fetch("/api/watch/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          zip: scanZip,
+          radiusMiles: scanRadius,
+          watchTexts,
+          onlyNew: false,
+          notifyPhone: profile?.consentAlerts ? profile.phone : undefined,
+        }),
+      });
+      const data = (await res.json()) as ScanResult;
+      setScanResult(data);
+      if (data.ok) {
+        setToast(
+          `${messages.scanDone} · ${data.matchCount ?? 0} ${messages.scanMatches}`
+        );
+      } else {
+        setToast(data.error || messages.scanFailed);
+      }
+    } catch {
+      setToast(messages.scanFailed);
+      setScanResult({ ok: false, error: messages.scanFailed });
+    } finally {
+      setScanning(false);
+      setTimeout(() => setToast(""), 4000);
+    }
+  }
+
   return (
     <PhoneShell>
       <BrandHeader />
@@ -61,6 +152,57 @@ export default function AppHomePage() {
         <p className="mb-3 rounded-xl border border-ss-line bg-ss-card px-3 py-2 text-xs text-ss-accent2">
           {toast}
         </p>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={onScanNow}
+        disabled={scanning}
+        className="mb-4 w-full rounded-[14px] border border-ss-accent2 bg-[rgba(61,214,198,0.12)] py-3.5 text-base font-bold text-ss-accent2 disabled:opacity-60"
+      >
+        {scanning ? messages.scanScanning : messages.scanNow}
+      </button>
+
+      {scanResult?.ok ? (
+        <div className="mb-4 rounded-[18px] border border-ss-line bg-ss-card p-3.5">
+          <div className="mb-2 text-xs text-ss-muted">
+            {messages.scanSources}:{" "}
+            {(scanResult.sources || [])
+              .map(
+                (s) =>
+                  `${s.sourceId} (${s.listingCount}${s.ok ? "" : " !"})`
+              )
+              .join(" · ")}
+          </div>
+          {(scanResult.matches || []).length === 0 ? (
+            <p className="text-sm text-ss-muted">{messages.scanNoMatches}</p>
+          ) : (
+            <ul className="space-y-2">
+              {(scanResult.matches || []).slice(0, 8).map((m) => (
+                <li
+                  key={m.listing.id}
+                  className="rounded-xl border border-ss-line bg-[#0b0d11] p-3"
+                >
+                  <a
+                    href={m.listing.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-semibold text-ss-accent underline-offset-2 hover:underline"
+                  >
+                    {m.listing.title}
+                  </a>
+                  <div className="mt-1 text-xs text-ss-muted">
+                    {m.matchedKeywords.join(", ")} · {m.listing.sourceId}
+                    {m.listing.distanceMiles != null
+                      ? ` · ${m.listing.distanceMiles} mi`
+                      : ""}
+                    {m.isNew ? ` · ${messages.scanNew}` : ""}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       ) : null}
 
       {watches.length === 0 ? (
