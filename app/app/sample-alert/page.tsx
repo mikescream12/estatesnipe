@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
-import { AppNav } from "@/components/AppNav";
-import { BrandHeader } from "@/components/BrandHeader";
-import { PhoneShell } from "@/components/PhoneShell";
-import { useLocale } from "@/lib/LocaleContext";
-import { loadProfile } from "@/lib/watches";
+import { AppNav } from "../../../components/AppNav";
+import { BrandHeader } from "../../../components/BrandHeader";
+import { PhoneShell } from "../../../components/PhoneShell";
+import { useLocale } from "../../../lib/LocaleContext";
+import { loadProfile } from "../../../lib/watches";
 
 export default function SampleAlertPage() {
   const { messages } = useLocale();
