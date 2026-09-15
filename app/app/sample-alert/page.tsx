@@ -1,13 +1,53 @@
 "use client";
 
 import Link from "next/link";
+import { FormEvent, useEffect, useState } from "react";
 import { AppNav } from "@/components/AppNav";
 import { BrandHeader } from "@/components/BrandHeader";
 import { PhoneShell } from "@/components/PhoneShell";
 import { useLocale } from "@/lib/LocaleContext";
+import { loadProfile } from "@/lib/watches";
 
 export default function SampleAlertPage() {
   const { messages } = useLocale();
+  const [phone, setPhone] = useState("");
+  const [status, setStatus] = useState<"idle" | "sending" | "ok" | "err">(
+    "idle"
+  );
+  const [statusMsg, setStatusMsg] = useState("");
+
+  useEffect(() => {
+    const profile = loadProfile();
+    if (profile?.phone) setPhone(profile.phone);
+  }, []);
+
+  async function onSend(e: FormEvent) {
+    e.preventDefault();
+    setStatus("sending");
+    setStatusMsg("");
+    try {
+      const res = await fetch("/api/sms/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: phone.trim() }),
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        sid?: string;
+        error?: string;
+      };
+      if (data.ok && data.sid) {
+        setStatus("ok");
+        setStatusMsg(`${messages.smsSent} ${data.sid}`);
+      } else {
+        setStatus("err");
+        setStatusMsg(data.error || messages.smsFailed);
+      }
+    } catch {
+      setStatus("err");
+      setStatusMsg(messages.smsFailed);
+    }
+  }
 
   return (
     <PhoneShell>
@@ -38,9 +78,46 @@ export default function SampleAlertPage() {
         </div>
       </div>
 
+      <form
+        onSubmit={onSend}
+        className="mt-4 rounded-[18px] border border-ss-line bg-ss-card p-3.5"
+      >
+        <p className="mb-2 text-[0.95rem] font-semibold text-ss-text">
+          {messages.smsFormTitle}
+        </p>
+        <p className="mb-3 text-[0.78rem] leading-snug text-ss-muted">
+          {messages.smsFormHint}
+        </p>
+        <label className="field-label" htmlFor="sms-to">
+          {messages.phoneLabel}
+        </label>
+        <input
+          id="sms-to"
+          type="tel"
+          placeholder="+12145550199"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          autoComplete="tel"
+          required
+        />
+        <button
+          type="submit"
+          disabled={status === "sending" || !phone.trim()}
+          className="mt-3 w-full rounded-[14px] bg-gradient-to-br from-ss-accent to-[#f0c27b] py-3.5 text-center text-base font-bold text-[#1a1208] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {status === "sending" ? messages.smsSending : messages.smsSendCta}
+        </button>
+        {status === "ok" ? (
+          <p className="mt-2 text-center text-xs text-ss-accent2">{statusMsg}</p>
+        ) : null}
+        {status === "err" ? (
+          <p className="mt-2 text-center text-xs text-ss-danger">{statusMsg}</p>
+        ) : null}
+      </form>
+
       <Link
         href="/"
-        className="mt-4 block w-full rounded-[14px] bg-gradient-to-br from-ss-accent to-[#f0c27b] py-3.5 text-center text-base font-bold text-[#1a1208]"
+        className="mt-4 block w-full rounded-[14px] border border-ss-line py-3.5 text-center text-base font-bold text-ss-text"
       >
         {messages.backSignup}
       </Link>

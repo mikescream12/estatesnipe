@@ -4,7 +4,7 @@ Website: https://estatesnipe.com
 
 Mobile-first **PWA** for estate-sale sniping alerts. Collectors talk to a buyer’s assistant to set **unlimited watches** (no dropdown taxonomies). A future poller will match listings/photos and SMS/email them.
 
-> Demo shell — no live scraping, no real Twilio, no Stripe charges. Watches/profile live in `localStorage`.
+> Demo shell — watches/profile live in `localStorage`. Twilio SMS test send is wired; Stripe/scraper still mocked.
 
 ## Run locally
 
@@ -18,6 +18,35 @@ Open [http://localhost:3000](http://localhost:3000) (phone-width viewport recomm
 
 ```bash
 npm run build && npm start
+```
+
+## Twilio SMS (test send)
+
+Copy `.env.example` → `.env.local` and set:
+
+| Variable | Purpose |
+|----------|---------|
+| `TWILIO_ACCOUNT_SID` | Twilio account SID |
+| `TWILIO_AUTH_TOKEN` | Twilio auth token (never commit) |
+| `TWILIO_PHONE_NUMBER` | From number in E.164 (e.g. `+17372583742`) |
+
+`.env*` is gitignored — do not commit secrets.
+
+**Trial limitation:** Twilio trial accounts can only SMS **verified** destination numbers. Add/verify your phone in the [Twilio Console](https://console.twilio.com/) → Phone Numbers → Verified Caller IDs. Unverified numbers return a clear API error.
+
+### Try it
+
+1. `npm run dev`
+2. Open `/app/sample-alert`
+3. Enter an E.164 phone (`+1…`) — prefilled from saved profile if present
+4. Tap **Text me this alert** → `POST /api/sms/test` → `{ ok: true, sid }` or `{ ok: false, error }`
+
+Or curl:
+
+```bash
+curl -s -X POST http://localhost:3000/api/sms/test \
+  -H 'Content-Type: application/json' \
+  -d '{"to":"+1XXXXXXXXXX"}'
 ```
 
 ## Demo: chat + install
@@ -38,7 +67,8 @@ npm run build && npm start
 | `/` | **Hero:** conversational watch setup + install banner + optional contact/consents |
 | `/app` | Watches list, manual add/delete, Pro upgrade CTA (freemium) |
 | `/app/chat` | Same chat experience (alias) |
-| `/app/sample-alert` | Mock SMS card (photo, match %, distance, hours, link) |
+| `/app/sample-alert` | Mock SMS card + **Text me this alert** (real Twilio) |
+| `POST /api/sms/test` | Send test SMS `{ to, body? }` → `{ ok, sid }` or `{ ok: false, error }` |
 
 ## Demo vs future
 
@@ -46,7 +76,7 @@ npm run build && npm start
 |------|--------|--------|
 | Filters | Chat / rule-based parser (`lib/parseWatchIntent.ts`) | Real LLM structured extraction |
 | Watches | `localStorage` | Accounts + DB |
-| Alerts | Mock SMS UI | **Twilio** SMS + email |
+| Alerts | **Twilio** test SMS via `/api/sms/test` | Poller-driven SMS + email |
 | Matching | None | Poller + vision |
 | Billing | Upgrade → `alert()` | **Stripe** Free → Pro |
 | PWA | manifest, icons, apple meta, install banner, basic SW | Richer offline / push |
@@ -60,4 +90,4 @@ npm run build && npm start
 
 ## Stack
 
-Next.js App Router · TypeScript · Tailwind CSS v4
+Next.js App Router · TypeScript · Tailwind CSS v4 · Twilio

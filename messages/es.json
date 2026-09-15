@@ -72,5 +72,11 @@
   "installHow": "¿Cómo?",
   "installIos": "iPhone/iPad: Safari → Compartir (□↑) → Añadir a pantalla de inicio → Añadir.",
   "installAndroid": "Android: menú Chrome (⋮) → Instalar app / Añadir a pantalla de inicio.",
-  "installBoth": "Mejor con HTTPS. En esta demo, usa la opción de instalar del navegador."
+  "installBoth": "Mejor con HTTPS. En esta demo, usa la opción de instalar del navegador.",
+  "smsFormTitle": "Envíame esta alerta",
+  "smsFormHint": "Envía un SMS real con Twilio. En cuentas trial solo a números verificados. Usa E.164 (+1…).",
+  "smsSendCta": "Envíame esta alerta",
+  "smsSending": "Enviando…",
+  "smsSent": "Enviado · sid",
+  "smsFailed": "No se pudo enviar el SMS."
 }

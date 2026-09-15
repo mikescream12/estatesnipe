@@ -72,5 +72,11 @@
   "installHow": "How?",
   "installIos": "iPhone/iPad: Safari → Share (□↑) → Add to Home Screen → Add.",
   "installAndroid": "Android: Chrome menu (⋮) → Install app / Add to Home screen.",
-  "installBoth": "Works best over HTTPS. On this demo, use your phone browser’s install option."
+  "installBoth": "Works best over HTTPS. On this demo, use your phone browser’s install option.",
+  "smsFormTitle": "Text me this alert",
+  "smsFormHint": "Sends a real SMS via Twilio. Trial accounts can only text verified numbers. Use E.164 (+1…).",
+  "smsSendCta": "Text me this alert",
+  "smsSending": "Sending…",
+  "smsSent": "Sent · sid",
+  "smsFailed": "Could not send SMS."
 }
