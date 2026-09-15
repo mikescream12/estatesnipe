@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CHIP_KEYS, type ChipKey } from "@/lib/i18n";
+import { CATEGORY_KEYS, CHIP_KEYS, type CategoryKey, type ChipKey } from "@/lib/i18n";
 import { useLocale } from "@/lib/LocaleContext";
 import { parseWatchIntent } from "@/lib/parseWatchIntent";
 import { addWatches, loadProfile } from "@/lib/watches";
@@ -148,6 +148,28 @@ export function HuntChat({
           </button>
         </div>
       ) : null}
+
+      <label className="block text-[0.78rem] uppercase tracking-wide text-ss-muted">
+        {messages.catLabel}
+        <select
+          className="mt-1.5 w-full"
+          defaultValue=""
+          aria-label={messages.catLabel}
+          onChange={(e) => {
+            const key = e.target.value as CategoryKey | "";
+            if (!key) return;
+            applyParsed(messages[key]);
+            e.target.value = "";
+          }}
+        >
+          <option value="">{messages.catPlaceholder}</option>
+          {CATEGORY_KEYS.map((key) => (
+            <option key={key} value={key}>
+              {messages[key]}
+            </option>
+          ))}
+        </select>
+      </label>
 
       <form onSubmit={onSend} className="flex gap-2">
         <input

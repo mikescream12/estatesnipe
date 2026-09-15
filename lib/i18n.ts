@@ -20,3 +20,20 @@ export const CHIP_KEYS = [
 ] as const;
 
 export type ChipKey = (typeof CHIP_KEYS)[number];
+
+export const CATEGORY_KEYS = [
+  "catPokemon",
+  "catSports",
+  "catJewelry",
+  "catMcm",
+  "catClothes",
+  "catChina",
+  "catChristmas",
+  "catTools",
+  "catVinyl",
+  "catToys",
+  "catArt",
+  "catCoins",
+] as const;
+
+export type CategoryKey = (typeof CATEGORY_KEYS)[number];
