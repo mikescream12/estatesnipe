@@ -1,0 +1,73 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #0f1115;
+  --card: #1a1d24;
+  --text: #f4f5f7;
+  --muted: #9aa3b2;
+  --accent: #e8a54b;
+  --accent2: #3dd6c6;
+  --line: #2a303b;
+  --danger: #ff6b6b;
+  --input: #12151b;
+}
+
+@theme inline {
+  --color-ss-bg: var(--bg);
+  --color-ss-card: var(--card);
+  --color-ss-text: var(--text);
+  --color-ss-muted: var(--muted);
+  --color-ss-accent: var(--accent);
+  --color-ss-accent2: var(--accent2);
+  --color-ss-line: var(--line);
+  --color-ss-danger: var(--danger);
+  --color-ss-input: var(--input);
+  --font-sans: var(--font-geist-sans);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: radial-gradient(1200px 600px at 50% -10%, #243049 0%, var(--bg) 55%);
+  color: var(--text);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+}
+
+input[type="text"],
+input[type="tel"],
+input[type="email"],
+input[type="number"] {
+  width: 100%;
+  background: var(--input);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 1rem;
+  outline: none;
+}
+
+input:focus {
+  border-color: var(--accent);
+}
+
+input::placeholder {
+  color: #6b7383;
+}
+
+label.field-label {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
