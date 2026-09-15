@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   DEFAULT_SAMPLE_SMS,
+  TRIAL_SMS_TEMPLATE,
   getTwilioClient,
   getTwilioFromNumber,
   isE164,
@@ -42,15 +43,35 @@ export async function POST(request: Request) {
     );
   }
 
-  const body =
+  // Trial accounts require a Twilio template name in Body (not free text).
+  // After upgrade, pass a custom body string via { body: "..." }.
+  const requested =
     typeof json.body === "string" && json.body.trim()
       ? json.body.trim()
-      : DEFAULT_SAMPLE_SMS;
+      : "";
+  const trialTemplates = new Set([
+    "sms_2fa",
+    "sms_appointment_reminders",
+    "sms_order_confirmation",
+    "sms_delivery_updates",
+    "sms_customer_support",
+    "sms_marketing_promotions",
+    "sms_event_notifications",
+    "sms_account_alerts",
+    "sms_feedback_surveys",
+    "sms_internal_alerts",
+  ]);
+  const useCustom = requested.length > 0 && !trialTemplates.has(requested) && !requested.startsWith("sms_");
+  const body = requested
+    ? requested
+    : TRIAL_SMS_TEMPLATE;
 
   try {
     const client = getTwilioClient();
     const from = getTwilioFromNumber();
-    const message = await client.messages.create({ to, from, body });
+    // If caller sent free text, still try it (works post-upgrade); on trial prefer template.
+    const payloadBody = useCustom ? requested : (trialTemplates.has(body) || body.startsWith("sms_") ? body : TRIAL_SMS_TEMPLATE);
+    const message = await client.messages.create({ to, from, body: payloadBody });
     return NextResponse.json({ ok: true, sid: message.sid });
   } catch (err: unknown) {
     const twilioErr = err as {

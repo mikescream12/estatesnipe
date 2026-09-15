@@ -31,5 +31,9 @@ export function isE164(phone: string): boolean {
   return /^\+[1-9]\d{7,14}$/.test(phone);
 }
 
+/** Twilio trial Body must be one of these template names (not free text). */
+export const TRIAL_SMS_TEMPLATE = "sms_event_notifications";
+
+/** Used after Twilio upgrade when custom bodies are allowed. */
 export const DEFAULT_SAMPLE_SMS =
   "EstateSnipe: Looks like hen-on-a-nest (87% match). Lakewood Estate Sale · 8.2 mi. Doors Sat 9:00am. More at https://estatesnipe.com";
