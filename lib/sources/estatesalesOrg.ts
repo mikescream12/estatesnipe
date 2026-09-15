@@ -30,30 +30,38 @@ function parseListings(html: string, limit: number): SaleListing[] {
   const listings: SaleListing[] = [];
   const seen = new Set<string>();
 
-  // Card image + link pattern
-  const cardRe =
-    /<a class="card__image"[^>]*href="(\/estate-sales\/([a-z]{2})\/([^/]+)\/(\d{5})\/([^"]+)-(\d+))"[^>]*>[\s\S]*?(?:data-original|src)="(https?:\/\/[^"]+)"[\s\S]*?<img[^>]*alt="([^"]*)"/gi;
-
+  const linkRe =
+    /href="(\/estate-sales\/([a-z]{2})\/([^/]+)\/(\d{5})\/([^"]+)-(\d+))"/gi;
   let m: RegExpExecArray | null;
-  while ((m = cardRe.exec(html)) !== null) {
-    const [, path, state, , zip, , id, imgUrl, alt] = m;
+  while ((m = linkRe.exec(html)) !== null) {
+    const [, path, state, cityPart, zip, slug, id] = m;
     const sid = `eso:${id}`;
     if (seen.has(sid)) continue;
-    seen.add(sid);
 
-    const title = decodeEntities(alt || path.split("/").pop() || `Sale ${id}`);
-    const photos: SalePhoto[] = imgUrl
-      ? [{ url: imgUrl, thumbnailUrl: imgUrl }]
+    const idx = m.index;
+    const window = html.slice(Math.max(0, idx - 250), idx + 1000);
+    const altMatch = /alt="([^"]{6,160})"/i.exec(window);
+    let title = decodeEntities((altMatch?.[1] || "").trim());
+    if (!title || /^(online auction|in-person estate sale)$/i.test(title)) {
+      title = decodeEntities((slug || "").replace(/-/g, " "));
+    }
+    if (!title) title = `Sale ${id}`;
+
+    const imgMatch =
+      /data-original="(https?:\/\/[^"]+)"/i.exec(window) ||
+      /src="(https?:\/\/eso-cdn[^"]+)"/i.exec(window);
+    const photos: SalePhoto[] = imgMatch
+      ? [{ url: imgMatch[1], thumbnailUrl: imgMatch[1] }]
       : [];
 
-    // Prefer non-"Online auction" / "In-person" generic titles from nearby heading links
+    seen.add(sid);
     listings.push({
       id: sid,
       sourceId: "estatesales.org",
-      title,
+      title: title.slice(0, 200),
       description: "",
       url: `${BASE}${path}`,
-      city: null,
+      city: cityPart.replace(/-/g, " ").replace(/\s+$/g, "") || null,
       state: state.toUpperCase(),
       zip,
       photos,
@@ -61,33 +69,6 @@ function parseListings(html: string, limit: number): SaleListing[] {
       fetchedAt: new Date().toISOString(),
     });
     if (listings.length >= limit) break;
-  }
-
-  // Fallback: title links if card parser missed
-  if (listings.length === 0) {
-    const linkRe =
-      /href="(\/estate-sales\/([a-z]{2})\/[^/]+\/(\d{5})\/([^"]+)-(\d+))"[^>]*>([^<]{8,120})</gi;
-    while ((m = linkRe.exec(html)) !== null) {
-      const [, path, state, zip, , id, titleRaw] = m;
-      const title = decodeEntities(titleRaw.trim());
-      if (/^(online auction|in-person estate sale)$/i.test(title)) continue;
-      const sid = `eso:${id}`;
-      if (seen.has(sid)) continue;
-      seen.add(sid);
-      listings.push({
-        id: sid,
-        sourceId: "estatesales.org",
-        title,
-        description: "",
-        url: `${BASE}${path}`,
-        state: state.toUpperCase(),
-        zip,
-        photos: [],
-        isAuction: /auction/i.test(title),
-        fetchedAt: new Date().toISOString(),
-      });
-      if (listings.length >= limit) break;
-    }
   }
 
   return listings;
