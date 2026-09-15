@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* SaleSnipe v1 shell */
+  /* EstateSnipe v1 shell */
 };
 
 export default nextConfig;

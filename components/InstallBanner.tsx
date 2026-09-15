@@ -26,7 +26,7 @@ export function InstallBanner() {
     setIsStandalone(standalone);
     if (standalone) return;
 
-    const dismissedAt = localStorage.getItem("salesnipe.install.dismissed");
+    const dismissedAt = localStorage.getItem("estatesnipe.install.dismissed");
     if (!dismissedAt) setDismissed(false);
 
     const ua = navigator.userAgent;
@@ -57,7 +57,7 @@ export function InstallBanner() {
   }
 
   function dismiss() {
-    localStorage.setItem("salesnipe.install.dismissed", Date.now().toString());
+    localStorage.setItem("estatesnipe.install.dismissed", Date.now().toString());
     setDismissed(true);
   }
 

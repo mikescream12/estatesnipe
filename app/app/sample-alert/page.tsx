@@ -27,7 +27,7 @@ export default function SampleAlertPage() {
           <div className="mb-2 grid h-[140px] place-items-center rounded-xl bg-gradient-to-br from-[#3a2f1f] to-[#6b4e2e] text-[0.95rem] font-bold text-[#f5e6c8]">
             {messages.alertPhoto}
           </div>
-          <strong>SaleSnipe:</strong> {messages.alertMatch}
+          <strong>EstateSnipe:</strong> {messages.alertMatch}
           <br />
           {messages.alertSale}
           <br />

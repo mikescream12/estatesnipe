@@ -8,8 +8,8 @@ export type Watch = {
   createdAt: string;
 };
 
-const STORAGE_KEY = "salesnipe.watches.v1";
-const PROFILE_KEY = "salesnipe.profile.v1";
+const STORAGE_KEY = "estatesnipe.watches.v1";
+const PROFILE_KEY = "estatesnipe.profile.v1";
 
 export type Profile = {
   phone: string;

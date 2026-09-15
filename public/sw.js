@@ -1,5 +1,5 @@
-/* SaleSnipe basic offline shell — caches app shell assets only */
-const CACHE = "salesnipe-shell-v1";
+/* EstateSnipe basic offline shell — caches app shell assets only */
+const CACHE = "estatesnipe-shell-v1";
 const PRECACHE = ["/", "/manifest.json", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (event) => {

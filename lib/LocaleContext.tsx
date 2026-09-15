@@ -24,13 +24,13 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>("en");
 
   useEffect(() => {
-    const saved = localStorage.getItem("salesnipe.locale") as Locale | null;
+    const saved = localStorage.getItem("estatesnipe.locale") as Locale | null;
     if (saved === "en" || saved === "es") setLocaleState(saved);
   }, []);
 
   const setLocale = useCallback((next: Locale) => {
     setLocaleState(next);
-    localStorage.setItem("salesnipe.locale", next);
+    localStorage.setItem("estatesnipe.locale", next);
   }, []);
 
   const toggleLocale = useCallback(() => {

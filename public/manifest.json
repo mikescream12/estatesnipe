@@ -1,6 +1,6 @@
 {
-  "name": "SaleSnipe",
-  "short_name": "SaleSnipe",
+  "name": "EstateSnipe",
+  "short_name": "EstateSnipe",
   "description": "Estate-sale sniping alerts — talk to set unlimited watches.",
   "start_url": "/",
   "scope": "/",

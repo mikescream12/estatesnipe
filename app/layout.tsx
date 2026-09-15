@@ -15,15 +15,17 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "SaleSnipe — estate sale alerts",
+  metadataBase: new URL("https://estatesnipe.com"),
+  alternates: { canonical: "/" },
+  title: "EstateSnipe — estate sale alerts",
   description:
     "Stop scrolling every sale. Talk to set watches — text + email when items show up.",
-  applicationName: "SaleSnipe",
+  applicationName: "EstateSnipe",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "SaleSnipe",
+    title: "EstateSnipe",
   },
   other: {
     "mobile-web-app-capable": "yes",

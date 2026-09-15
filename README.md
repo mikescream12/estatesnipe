@@ -1,4 +1,6 @@
-# SaleSnipe (v1 product shell)
+# EstateSnipe (v1 product shell)
+
+Website: https://estatesnipe.com
 
 Mobile-first **PWA** for estate-sale sniping alerts. Collectors talk to a buyer’s assistant to set **unlimited watches** (no dropdown taxonomies). A future poller will match listings/photos and SMS/email them.
 
