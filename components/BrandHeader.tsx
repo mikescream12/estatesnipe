@@ -9,7 +9,7 @@ export function BrandHeader({ showLang = true }: { showLang?: boolean }) {
   return (
     <div className="mb-[18px] flex items-center justify-between">
       <Link href="/" className="text-[1.25rem] font-extrabold tracking-tight">
-        Sale<span className="text-ss-accent">Snipe</span>
+        Estate<span className="text-ss-accent">Snipe</span>
       </Link>
       {showLang ? (
         <button
