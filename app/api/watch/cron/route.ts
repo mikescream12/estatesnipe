@@ -31,7 +31,7 @@ function normalizeZip(value: string): string {
  * Watches for cron are configured via env:
  *   CRON_ZIP=92886
  *   CRON_RADIUS_MILES=25
- *   CRON_WATCH_TEXTS=sterling|hen on a nest|pokemon
+ *   CRON_WATCH_TEXTS="sterling|hen on a nest|pokemon"  # quote if sourcing in shell
  *   CRON_NOTIFY_PHONE=+1... (optional)
  *
  * Timing: vision is off by default on this path (set CRON_ENABLE_VISION=1 to
