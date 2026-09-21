@@ -189,7 +189,10 @@ async function maybeSendSms(
 }
 
 export async function runScan(req: ScanRequest): Promise<ScanResponse> {
-  const zip = (req.zip || "").trim();
+  const zip = (req.zip || "")
+    .trim()
+    .replace(/^["']|["']$/g, "")
+    .replace(/\D/g, "");
   // 0 / NaN / missing → 25. Huge values cap at 100 so Texas is never "in range".
   const requestedRadius = clampRadiusMiles(req.radiusMiles, 25);
   const access = gateScanAccess(requestedRadius, req.billing, isPaywallEnforced());
@@ -211,7 +214,7 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
     deadlineMs == null ? Number.POSITIVE_INFINITY : deadlineMs - (Date.now() - startedAt);
   let partial = false;
 
-  if (!/^\d{5}$/.test(zip)) {
+  if (!/^[1-9]\d{4}$/.test(zip)) {
     return {
       ok: false,
       zip,

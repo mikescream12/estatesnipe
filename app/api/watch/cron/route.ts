@@ -8,6 +8,22 @@ export const dynamic = "force-dynamic";
 /** Hobby ceiling is 60s — scan must finish earlier via deadlineMs. */
 export const maxDuration = 60;
 
+function stripSurroundingQuotes(value: string): string {
+  let normalized = value.trim();
+  while (
+    normalized.length >= 2 &&
+    ((normalized.startsWith('"') && normalized.endsWith('"')) ||
+      (normalized.startsWith("'") && normalized.endsWith("'")))
+  ) {
+    normalized = normalized.slice(1, -1).trim();
+  }
+  return normalized;
+}
+
+function normalizeZip(value: string): string {
+  return stripSurroundingQuotes(value).replace(/\D/g, "");
+}
+
 /**
  * Vercel Cron compatible endpoint.
  * Auth: Authorization: Bearer ${CRON_SECRET}
@@ -40,22 +56,29 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  const zip = (process.env.CRON_ZIP || "").trim();
-  if (!/^\d{5}$/.test(zip)) {
+  const zip = normalizeZip(process.env.CRON_ZIP || "");
+  if (!/^[1-9]\d{4}$/.test(zip)) {
     return NextResponse.json(
       {
         ok: false,
+        zip,
         error: "CRON_ZIP must be a 5-digit US zip. Refusing to scan a default city.",
       },
       { status: 400 }
     );
   }
-  const radiusMiles = clampRadiusMiles(process.env.CRON_RADIUS_MILES, 25);
-  const watchTexts = (process.env.CRON_WATCH_TEXTS || "sterling|pokemon|mcm")
+  const radiusMiles = clampRadiusMiles(
+    stripSurroundingQuotes(process.env.CRON_RADIUS_MILES || ""),
+    25
+  );
+  const watchTexts = stripSurroundingQuotes(
+    process.env.CRON_WATCH_TEXTS || "sterling|pokemon|mcm"
+  )
     .split("|")
-    .map((s) => s.trim())
+    .map((s) => stripSurroundingQuotes(s))
     .filter(Boolean);
-  const notifyPhone = process.env.CRON_NOTIFY_PHONE || undefined;
+  const notifyPhone =
+    stripSurroundingQuotes(process.env.CRON_NOTIFY_PHONE || "") || undefined;
   // Default: skip vision on cron. Opt in with CRON_ENABLE_VISION=1.
   const skipVision = !/^(1|true|yes|on)$/i.test(
     (process.env.CRON_ENABLE_VISION || "").trim()
