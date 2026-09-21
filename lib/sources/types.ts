@@ -45,7 +45,13 @@ export type SourceStatus = {
 
 export type SourceFetchParams = {
   zip: string;
+  /** Window passed to source APIs (soft band). Not the user's hard radius. */
   radiusMiles: number;
+  /**
+   * User's hard radius for the geo gate. Defaults to radiusMiles.
+   * Texas must stay out even if a source ignores radiusMiles.
+   */
+  hardRadiusMiles?: number;
   latitude?: number;
   longitude?: number;
   city?: string;

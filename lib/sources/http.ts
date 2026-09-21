@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { promises as fs } from "fs";
 import path from "path";
 import { rateLimit } from "./rateLimit";
@@ -8,8 +9,9 @@ export const BOT_UA =
 const CACHE_DIR = process.env.ESTATESNIPE_CACHE_DIR || "/tmp/estatesnipe-cache";
 const memoryCache = new Map<string, { at: number; body: string; status: number; contentType: string }>();
 
-function cacheKey(url: string): string {
-  return Buffer.from(url).toString("base64url").slice(0, 120);
+/** Full URL hash. A truncated key collided and served another city's body. */
+export function cacheKey(url: string): string {
+  return createHash("sha256").update(url).digest("hex");
 }
 
 async function readFileCache(

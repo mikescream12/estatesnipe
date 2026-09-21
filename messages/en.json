@@ -13,8 +13,8 @@
   "radiusLabel": "Radius (mi)",
   "phoneLabel": "Phone (SMS alerts)",
   "emailLabel": "Email",
-  "consentAlerts": "Send me match alerts by text & email when items appear near me.",
-  "consentMarketing": "Also send occasional offers from EstateSnipe (sales, tools, partner deals). Reply STOP to opt out of texts anytime.",
+  "consentAlerts": "I agree to receive EstateSnipe match-alert SMS and email when items matching my watches appear near me. Message frequency varies (alerts when matches are found). Msg & data rates may apply. Reply STOP to opt out, HELP for help.",
+  "consentMarketing": "I also agree to receive occasional EstateSnipe marketing texts/emails (offers, tools, partner deals). Msg & data rates may apply. Reply STOP to opt out, HELP for help.",
   "ctaStart": "Start free alerts",
   "ctaSample": "See a sample text →",
   "ctaChat": "Or just tell me what you want →",
@@ -101,5 +101,16 @@
   "catVinyl": "Vinyl & records",
   "catToys": "Toys",
   "catArt": "Art",
-  "catCoins": "Coins"
+  "catCoins": "Coins",
+  "scanOutsideRadius": "Slightly outside your {radius} mi radius · {distance} mi away",
+  "matchFromPhotos": "Matched from photos",
+  "matchFromBoth": "Matched from text + photos",
+  "matchVisionReason": "{reason}",
+  "scanVisionOff": "Photo matching off (enable ESTATESNIPE_VISION_ENABLED)",
+  "scanVisionStats": "Vision: {matched}/{evaluated} photo matches",
+  "viewSale": "View sale →",
+  "noPhoto": "Photo coming soon",
+  "termsLink": "Terms of Service",
+  "privacyLink": "Privacy Policy",
+  "consentPhoneRequired": "Check the SMS alerts box to save a phone number that will receive texts."
 }

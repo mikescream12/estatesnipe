@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useLocale } from "@/lib/LocaleContext";
 import { loadProfile, saveProfile } from "@/lib/watches";
@@ -8,11 +9,12 @@ export function ContactConsentForm() {
   const { messages } = useLocale();
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
-  const [zip, setZip] = useState("75201");
+  const [zip, setZip] = useState("");
   const [radius, setRadius] = useState("25");
-  const [consentAlerts, setConsentAlerts] = useState(true);
+  const [consentAlerts, setConsentAlerts] = useState(false);
   const [consentMarketing, setConsentMarketing] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [consentError, setConsentError] = useState(false);
 
   useEffect(() => {
     const existing = loadProfile();
@@ -27,8 +29,14 @@ export function ContactConsentForm() {
 
   function onSave(e: React.FormEvent) {
     e.preventDefault();
+    const phoneTrimmed = phone.trim();
+    if (phoneTrimmed && !consentAlerts) {
+      setConsentError(true);
+      return;
+    }
+    setConsentError(false);
     saveProfile({
-      phone,
+      phone: phoneTrimmed,
       email,
       zip,
       radiusMi: Math.max(1, parseInt(radius, 10) || 25),
@@ -61,7 +69,10 @@ export function ContactConsentForm() {
         type="tel"
         placeholder="+1 214 555 0199"
         value={phone}
-        onChange={(e) => setPhone(e.target.value)}
+        onChange={(e) => {
+          setPhone(e.target.value);
+          if (consentError) setConsentError(false);
+        }}
       />
       <label className="field-label">{messages.emailLabel}</label>
       <input
@@ -75,7 +86,10 @@ export function ContactConsentForm() {
           type="checkbox"
           className="mt-1"
           checked={consentAlerts}
-          onChange={(e) => setConsentAlerts(e.target.checked)}
+          onChange={(e) => {
+            setConsentAlerts(e.target.checked);
+            if (e.target.checked) setConsentError(false);
+          }}
         />
         <span>{messages.consentAlerts}</span>
       </label>
@@ -88,6 +102,20 @@ export function ContactConsentForm() {
         />
         <span>{messages.consentMarketing}</span>
       </label>
+      <p className="text-[0.75rem] leading-snug text-ss-muted">
+        <Link href="/terms" className="text-ss-accent2 underline">
+          {messages.termsLink}
+        </Link>
+        {" · "}
+        <Link href="/privacy" className="text-ss-accent2 underline">
+          {messages.privacyLink}
+        </Link>
+      </p>
+      {consentError ? (
+        <p className="text-center text-xs text-ss-danger">
+          {messages.consentPhoneRequired}
+        </p>
+      ) : null}
       <button
         type="submit"
         className="w-full rounded-[14px] border border-ss-line py-3 font-bold text-ss-text"

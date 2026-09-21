@@ -4,7 +4,14 @@
  * NOTE: NOT estatelsaes.org (typo).
  */
 
-import { citySlug, resolveZip } from "./geo";
+import {
+  citySlug,
+  normalizeState,
+  parseUrlLocation,
+  resolveZip,
+  stateForZip,
+  statesCanBeNear,
+} from "./geo";
 import { fetchCached } from "./http";
 import type {
   SaleListing,
@@ -137,7 +144,22 @@ export const estatesalesOrg: SaleSource = {
         };
       }
 
-      const listings = parseListings(body, limit);
+      const watchState = normalizeState(state);
+      // City pages embed featured sales, sometimes in other states. Drop
+      // anything that cannot sit inside the soft band. Same-state but far
+      // zips are still distance-checked by the scan gate.
+      const listings = parseListings(body, limit).filter((l) => {
+        if (!watchState) return false;
+        const url = parseUrlLocation(l.url);
+        const signals = [
+          normalizeState(l.state),
+          stateForZip(l.zip) || "",
+          normalizeState(url.state),
+          stateForZip(url.zip) || "",
+        ].filter(Boolean);
+        if (!signals.length) return false;
+        return signals.every((st) => statesCanBeNear(watchState, st));
+      });
       return {
         listings,
         status: {

@@ -13,8 +13,8 @@
   "radiusLabel": "Radio (mi)",
   "phoneLabel": "Teléfono (alertas SMS)",
   "emailLabel": "Email",
-  "consentAlerts": "Enviadme alertas por SMS y email cuando aparezcan artículos cerca.",
-  "consentMarketing": "También enviad ofertas ocasionales de EstateSnipe. Respondé STOP para cancelar SMS.",
+  "consentAlerts": "Acepto recibir SMS y emails de alertas de EstateSnipe cuando aparezcan artículos que coincidan con mis búsquedas cerca de mí. La frecuencia varía (alertas cuando haya coincidencias). Pueden aplicarse tarifas de mensajes y datos. Responde STOP para cancelar, HELP para ayuda.",
+  "consentMarketing": "También acepto recibir textos/emails ocasionales de marketing de EstateSnipe (ofertas, herramientas, socios). Pueden aplicarse tarifas de mensajes y datos. Responde STOP para cancelar, HELP para ayuda.",
   "ctaStart": "Empezar alertas gratis",
   "ctaSample": "Ver un SMS de ejemplo →",
   "ctaChat": "O cuéntame qué quieres →",
@@ -101,5 +101,16 @@
   "catVinyl": "Vinilos",
   "catToys": "Juguetes",
   "catArt": "Arte",
-  "catCoins": "Monedas"
+  "catCoins": "Monedas",
+  "scanOutsideRadius": "Un poco fuera de tu radio de {radius} mi · a {distance} mi",
+  "matchFromPhotos": "Coincidencia por fotos",
+  "matchFromBoth": "Coincidencia por texto + fotos",
+  "matchVisionReason": "{reason}",
+  "scanVisionOff": "Coincidencia por fotos desactivada (ESTATESNIPE_VISION_ENABLED)",
+  "scanVisionStats": "Visión: {matched}/{evaluated} por fotos",
+  "viewSale": "Ver venta →",
+  "noPhoto": "Foto próximamente",
+  "termsLink": "Términos de servicio",
+  "privacyLink": "Política de privacidad",
+  "consentPhoneRequired": "Marca la casilla de alertas SMS para guardar un teléfono que recibirá mensajes."
 }

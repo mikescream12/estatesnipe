@@ -4,6 +4,9 @@
  * TODO: replace with a real LLM that returns structured JSON:
  *   { keywords, radiusMi?, zip?, excludeAuctions?, notes? }
  * Keep this rule-based extractor as offline / fallback only.
+ *
+ * Keywords are OR'd at match time. Labels are human-friendly; search
+ * keys stay short so synonym expansion in match.ts can broaden them.
  */
 
 export type ParsedWatchIntent = {
@@ -15,19 +18,29 @@ export type ParsedWatchIntent = {
   reply: string;
 };
 
-const KNOWN: { pattern: RegExp; label: string }[] = [
-  { pattern: /hen[\s-]*on[\s-]*a[\s-]*nest|hen.?nest/i, label: "Hen on a nest" },
-  { pattern: /vintage\s*christmas|navidad\s*vintage/i, label: "Vintage Christmas" },
-  { pattern: /sealed\s*pok[eé]mon|pok[eé]mon\s*sealed/i, label: "Sealed Pokemon" },
-  { pattern: /pok[eé]mon/i, label: "Pokemon" },
-  { pattern: /sports?\s*cards?|cartas\s*deportivas/i, label: "Sports cards" },
-  { pattern: /mcm\s*furniture|muebles\s*mcm|mid[\s-]*century/i, label: "MCM furniture" },
-  { pattern: /sterling|plata\b/i, label: "Sterling" },
-  { pattern: /rolex/i, label: "Rolex" },
-  { pattern: /vinyl|records?/i, label: "Vinyl records" },
-  { pattern: /lego/i, label: "LEGO" },
-  { pattern: /comic\s*books?/i, label: "Comic books" },
-  { pattern: /sealed\s*boxes?/i, label: "Sealed boxes" },
+/** pattern → display label + canonical search key (matched via synonyms) */
+const KNOWN: { pattern: RegExp; label: string; key: string }[] = [
+  { pattern: /hen[\s-]*on[\s-]*a[\s-]*nest|hen.?nest/i, label: "Hen on a nest", key: "hen on a nest" },
+  { pattern: /vintage\s*christmas|navidad\s*vintage/i, label: "Vintage Christmas", key: "vintage christmas" },
+  { pattern: /sealed\s*pok[eé]mon|pok[eé]mon\s*sealed/i, label: "Sealed Pokemon", key: "sealed pokemon" },
+  { pattern: /pok[eé]mon/i, label: "Pokemon", key: "pokemon" },
+  { pattern: /sports?\s*cards?|cartas\s*deportivas/i, label: "Sports cards", key: "sports cards" },
+  {
+    pattern: /\bmcm\b|mcm\s*furniture|muebles\s*mcm|mid[\s-]*century|midcentury/i,
+    label: "MCM",
+    key: "mcm",
+  },
+  { pattern: /sterling|plata\b/i, label: "Sterling", key: "sterling" },
+  { pattern: /rolex/i, label: "Rolex", key: "rolex" },
+  { pattern: /vinyl|records?|vinilos?/i, label: "Vinyl records", key: "vinyl" },
+  { pattern: /lego/i, label: "LEGO", key: "lego" },
+  { pattern: /comic\s*books?/i, label: "Comic books", key: "comic books" },
+  { pattern: /sealed\s*boxes?/i, label: "Sealed boxes", key: "sealed boxes" },
+  {
+    pattern: /\btools?\b|toolbox|herramientas?|craftsman|dewalt/i,
+    label: "Tools",
+    key: "tools",
+  },
 ];
 
 function extractRadius(text: string): number | null {
@@ -53,6 +66,15 @@ function extractExcludeAuctions(text: string): boolean {
 function extractKeywords(text: string): string[] {
   const found: string[] = [];
   const usedRanges: [number, number][] = [];
+  const seen = new Set<string>();
+
+  const push = (key: string) => {
+    const k = key.trim().toLowerCase();
+    if (!k || k.length < 2 || k.length > 60) return;
+    if (seen.has(k)) return;
+    seen.add(k);
+    found.push(k);
+  };
 
   for (const item of KNOWN) {
     const m = item.pattern.exec(text);
@@ -60,19 +82,23 @@ function extractKeywords(text: string): string[] {
     const start = m.index;
     const end = start + m[0].length;
     if (usedRanges.some(([a, b]) => start < b && end > a)) continue;
-    // Prefer more specific labels (sealed pokemon before pokemon)
     if (
-      item.label === "Pokemon" &&
-      found.some((f) => /pokemon/i.test(f) && /sealed/i.test(f))
+      item.key === "pokemon" &&
+      found.some((f) => f.includes("pokemon") && f.includes("sealed"))
     ) {
       continue;
     }
-    found.push(item.label);
+    push(item.key);
     usedRanges.push([start, end]);
   }
-  if (found.length) return found;
 
-  const cleaned = text
+  // Blank out consumed spans so leftover terms (e.g. tools next to pokemon) remain
+  let residual = text;
+  for (const [a, b] of [...usedRanges].sort((x, y) => y[0] - x[0])) {
+    residual = residual.slice(0, a) + " " + residual.slice(b);
+  }
+
+  const cleaned = residual
     .replace(/\bwithin\s+\d+\s*(?:mi|miles?|km)?\b/gi, "")
     .replace(/\bdentro\s+de\s+\d+[^.]*\b/gi, "")
     .replace(/\b\d+\s*(?:mi|miles?|km)\b/gi, "")
@@ -86,11 +112,15 @@ function extractKeywords(text: string): string[] {
     .trim();
 
   const parts = cleaned
-    .split(/\s*(?:,|\band\b|\by\b|\+|\/)\s*/i)
+    .split(/\s*(?:,|\band\b|\bor\b|\by\b|\bo\b|\+|\/)\s*/i)
     .map((p) => p.trim())
     .filter((p) => p.length > 1 && p.length < 60);
 
-  return parts.length ? parts.slice(0, 6) : cleaned ? [cleaned.slice(0, 60)] : [];
+  for (const p of parts) push(p);
+
+  if (!found.length && cleaned) push(cleaned.slice(0, 60));
+
+  return found.slice(0, 8);
 }
 
 export function parseWatchIntent(

@@ -5,7 +5,14 @@
  */
 
 import { fetchCached } from "./http";
-import { haversineMiles, resolveZip } from "./geo";
+import {
+  haversineMiles,
+  normalizeState,
+  parseUrlLocation,
+  resolveZip,
+  stateForZip,
+  statesCanBeNear,
+} from "./geo";
 import type {
   SaleListing,
   SalePhoto,
@@ -187,7 +194,30 @@ export const estatesalesNet: SaleSource = {
         };
       }
 
-      const listings = raw.map((s) => mapSale(s, { lat: lat!, lng: lng! }));
+      const originState = normalizeState(params.state);
+      // bydistance is not a hard cap. No coordinates, no distance, or a
+      // state/zip/url that cannot be near the watch → drop. Never keep
+      // "unknown distance" for a later nationwide match.
+      const listings = raw
+        .map((s) => mapSale(s, { lat: lat!, lng: lng! }))
+        .filter((l) => {
+          if (
+            l.distanceMiles == null ||
+            !Number.isFinite(l.distanceMiles) ||
+            l.distanceMiles > radius
+          ) {
+            return false;
+          }
+          if (!originState) return true;
+          const url = parseUrlLocation(l.url);
+          const signals = [
+            normalizeState(l.state),
+            stateForZip(l.zip) || "",
+            normalizeState(url.state),
+            stateForZip(url.zip) || "",
+          ].filter(Boolean);
+          return signals.every((st) => statesCanBeNear(originState, st));
+        });
       return {
         listings,
         status: {

@@ -11,6 +11,7 @@ import { loadProfile } from "../../../lib/watches";
 export default function SampleAlertPage() {
   const { messages } = useLocale();
   const [phone, setPhone] = useState("");
+  const [smsConsent, setSmsConsent] = useState(false);
   const [status, setStatus] = useState<"idle" | "sending" | "ok" | "err">(
     "idle"
   );
@@ -23,6 +24,11 @@ export default function SampleAlertPage() {
 
   async function onSend(e: FormEvent) {
     e.preventDefault();
+    if (!smsConsent) {
+      setStatus("err");
+      setStatusMsg(messages.consentPhoneRequired);
+      return;
+    }
     setStatus("sending");
     setStatusMsg("");
     try {
@@ -100,9 +106,27 @@ export default function SampleAlertPage() {
           autoComplete="tel"
           required
         />
+        <label className="my-2 flex items-start gap-2.5 text-[0.82rem] leading-snug text-ss-muted">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={smsConsent}
+            onChange={(e) => setSmsConsent(e.target.checked)}
+          />
+          <span>{messages.consentAlerts}</span>
+        </label>
+        <p className="mb-2 text-[0.75rem] leading-snug text-ss-muted">
+          <Link href="/terms" className="text-ss-accent2 underline">
+            {messages.termsLink}
+          </Link>
+          {" · "}
+          <Link href="/privacy" className="text-ss-accent2 underline">
+            {messages.privacyLink}
+          </Link>
+        </p>
         <button
           type="submit"
-          disabled={status === "sending" || !phone.trim()}
+          disabled={status === "sending" || !phone.trim() || !smsConsent}
           className="mt-3 w-full rounded-[14px] bg-gradient-to-br from-ss-accent to-[#f0c27b] py-3.5 text-center text-base font-bold text-[#1a1208] disabled:cursor-not-allowed disabled:opacity-50"
         >
           {status === "sending" ? messages.smsSending : messages.smsSendCta}

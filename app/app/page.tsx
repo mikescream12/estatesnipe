@@ -7,13 +7,17 @@ import { InstallBanner } from "@/components/InstallBanner";
 import { BrandHeader } from "@/components/BrandHeader";
 import { PhoneShell } from "@/components/PhoneShell";
 import { useLocale } from "@/lib/LocaleContext";
+import { clampRadiusMiles, gateListing, preferredZip } from "@/lib/geoPure";
 import {
   addWatch,
   deleteWatch,
   loadProfile,
   loadWatches,
+  saveProfile,
+  saveWatches,
   type Watch,
 } from "@/lib/watches";
+import { MatchCard } from "@/components/MatchCard";
 
 type ScanMatch = {
   listing: {
@@ -22,6 +26,8 @@ type ScanMatch = {
     url: string;
     sourceId: string;
     city?: string | null;
+    state?: string | null;
+    zip?: string | null;
     distanceMiles?: number | null;
     photos?: Array<{ url: string; thumbnailUrl?: string }>;
   };
@@ -29,6 +35,11 @@ type ScanMatch = {
   matchedKeywords: string[];
   score: number;
   isNew: boolean;
+  outsideRadius?: boolean;
+  matchSource?: "text" | "photo" | "both";
+  visionConfidence?: number;
+  visionReason?: string;
+  visionLabels?: string[];
 };
 
 type ScanResult = {
@@ -37,6 +48,7 @@ type ScanResult = {
   listingCount?: number;
   matchCount?: number;
   newMatchCount?: number;
+  radiusMiles?: number;
   matches?: ScanMatch[];
   sources?: Array<{
     sourceId: string;
@@ -44,13 +56,20 @@ type ScanResult = {
     listingCount: number;
     reason?: string;
   }>;
+  vision?: {
+    enabled?: boolean;
+    visionEnabled?: boolean;
+    matched?: number;
+    evaluated?: number;
+    skippedReason?: string;
+  };
 };
 
 export default function AppHomePage() {
   const { messages } = useLocale();
   const [watches, setWatches] = useState<Watch[]>([]);
   const [keyword, setKeyword] = useState("");
-  const [zip, setZip] = useState("75201");
+  const [zip, setZip] = useState("");
   const [radiusMi, setRadiusMi] = useState("25");
   const [toast, setToast] = useState("");
   const [scanning, setScanning] = useState(false);
@@ -65,11 +84,16 @@ export default function AppHomePage() {
 
   function onAdd(e: React.FormEvent) {
     e.preventDefault();
-    if (!keyword.trim()) return;
+    const z = preferredZip(zip, null);
+    if (!keyword.trim() || !z) {
+      setToast("Enter a keyword and a 5-digit zip.");
+      setTimeout(() => setToast(""), 2500);
+      return;
+    }
     const next = addWatch({
       keyword: keyword.trim(),
-      zip: zip.trim() || "75201",
-      radiusMi: Math.max(1, parseInt(radiusMi, 10) || 25),
+      zip: z,
+      radiusMi: clampRadiusMiles(radiusMi, 25),
     });
     setWatches(next);
     setKeyword("");
@@ -83,12 +107,14 @@ export default function AppHomePage() {
 
   async function onScanNow() {
     const profile = loadProfile();
-    const scanZip =
-      (profile?.zip || zip || watches[0]?.zip || "75201").trim() || "75201";
-    const scanRadius =
-      profile?.radiusMi ||
-      watches[0]?.radiusMi ||
-      Math.max(1, parseInt(radiusMi, 10) || 25);
+    // Visible zip wins. A saved Dallas profile must not override the field.
+    const scanZip = preferredZip(zip, null);
+    const scanRadius = clampRadiusMiles(radiusMi, 25);
+    if (!/^\d{5}$/.test(scanZip)) {
+      setToast("Enter a 5-digit US zip. Scanning without one is disabled.");
+      setTimeout(() => setToast(""), 3000);
+      return;
+    }
     const watchTexts =
       watches.length > 0
         ? watches.map((w) => w.keyword)
@@ -118,6 +144,34 @@ export default function AppHomePage() {
         }),
       });
       const data = (await res.json()) as ScanResult;
+      if (data.matches) {
+        data.matches = data.matches.filter((m) =>
+          gateListing({
+            origin: { zip: scanZip, state: "" },
+            radiusMi: scanRadius,
+            coordDistanceMiles:
+              typeof m.listing.distanceMiles === "number"
+                ? m.listing.distanceMiles
+                : null,
+            listingState: m.listing.state,
+            listingZip: m.listing.zip,
+            listingUrl: m.listing.url,
+          }).include
+        );
+        data.matchCount = data.matches.length;
+      }
+      if (profile) {
+        saveProfile({ ...profile, zip: scanZip, radiusMi: scanRadius });
+      }
+      if (watches.length) {
+        const synced = watches.map((w) => ({
+          ...w,
+          zip: scanZip,
+          radiusMi: scanRadius,
+        }));
+        saveWatches(synced);
+        setWatches(synced);
+      }
       setScanResult(data);
       if (data.ok) {
         setToast(
@@ -140,6 +194,11 @@ export default function AppHomePage() {
       <BrandHeader />
       <InstallBanner />
       <AppNav />
+      <p className="mb-3 text-center text-xs">
+        <Link href="/pricing" className="font-semibold text-ss-accent2">
+          Free vs Pro
+        </Link>
+      </p>
 
       <div className="mb-3 flex items-center justify-between">
         <h1 className="text-xl font-bold tracking-tight">{messages.appTitle}</h1>
@@ -164,7 +223,7 @@ export default function AppHomePage() {
       </button>
 
       {scanResult?.ok ? (
-        <div className="mb-4 rounded-[18px] border border-ss-line bg-ss-card p-3.5">
+        <div className="mb-4 rounded-[20px] border border-ss-line bg-ss-card p-3.5 shadow-[0_10px_30px_rgba(0,0,0,0.25)]">
           <div className="mb-2 text-xs text-ss-muted">
             {messages.scanSources}:{" "}
             {(scanResult.sources || [])
@@ -174,31 +233,40 @@ export default function AppHomePage() {
               )
               .join(" · ")}
           </div>
+          {scanResult.vision?.visionEnabled || scanResult.vision?.enabled ? (
+            <div className="mb-2 text-xs text-ss-accent2">
+              Vision: {scanResult.vision.matched ?? 0}/
+              {scanResult.vision.evaluated ?? 0} photo matches
+            </div>
+          ) : scanResult.vision?.skippedReason &&
+            scanResult.vision.skippedReason !== "pro_required" ? (
+            <div className="mb-2 text-xs text-ss-muted">
+              Vision skipped: {scanResult.vision.skippedReason}
+            </div>
+          ) : null}
           {(scanResult.matches || []).length === 0 ? (
             <p className="text-sm text-ss-muted">{messages.scanNoMatches}</p>
           ) : (
-            <ul className="space-y-2">
+            <ul className="space-y-3.5">
               {(scanResult.matches || []).slice(0, 8).map((m) => (
-                <li
+                <MatchCard
                   key={m.listing.id}
-                  className="rounded-xl border border-ss-line bg-[#0b0d11] p-3"
-                >
-                  <a
-                    href={m.listing.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="font-semibold text-ss-accent underline-offset-2 hover:underline"
-                  >
-                    {m.listing.title}
-                  </a>
-                  <div className="mt-1 text-xs text-ss-muted">
-                    {m.matchedKeywords.join(", ")} · {m.listing.sourceId}
-                    {m.listing.distanceMiles != null
-                      ? ` · ${m.listing.distanceMiles} mi`
-                      : ""}
-                    {m.isNew ? ` · ${messages.scanNew}` : ""}
-                  </div>
-                </li>
+                  listing={m.listing}
+                  matchedKeywords={m.matchedKeywords}
+                  matchSource={m.matchSource}
+                  visionConfidence={m.visionConfidence}
+                  visionReason={m.visionReason}
+                  isNew={m.isNew}
+                  outsideRadius={m.outsideRadius}
+                  radiusMiles={scanResult.radiusMiles ?? radiusMi}
+                  labels={{
+                    matchFromPhotos: messages.matchFromPhotos,
+                    matchFromBoth: messages.matchFromBoth,
+                    scanNew: messages.scanNew,
+                    viewSale: messages.viewSale,
+                    noPhoto: messages.noPhoto,
+                  }}
+                />
               ))}
             </ul>
           )}
@@ -280,15 +348,12 @@ export default function AppHomePage() {
 
       <div className="rounded-[18px] border border-ss-line bg-ss-card p-4 text-center">
         <p className="mb-2 text-sm text-ss-muted">{messages.upgradeBlurb}</p>
-        <button
-          type="button"
-          className="w-full rounded-[14px] border border-ss-accent px-4 py-3 font-bold text-ss-accent"
-          onClick={() =>
-            alert("Stripe checkout — future. This is a demo shell.")
-          }
+        <Link
+          href="/subscribe"
+          className="block w-full rounded-[14px] border border-ss-accent px-4 py-3 font-bold text-ss-accent"
         >
           {messages.upgradeCta}
-        </button>
+        </Link>
       </div>
     </PhoneShell>
   );

@@ -18,6 +18,8 @@ export type StoredMatch = {
   matchedKeywords: string[];
   score: number;
   at: string;
+  matchSource?: "text" | "photo" | "both";
+  visionReason?: string;
 };
 
 type StoreShape = {
@@ -100,6 +102,8 @@ export async function recordMatches(hits: MatchHit[]): Promise<StoredMatch[]> {
       matchedKeywords: hit.matchedKeywords,
       score: hit.score,
       at: now,
+      matchSource: hit.matchSource,
+      visionReason: hit.visionReason,
     };
     recorded.push(row);
     s.matches.unshift(row);

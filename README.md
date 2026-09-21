@@ -4,7 +4,7 @@ Website: https://estatesnipe.com
 
 Mobile-first **PWA** for estate-sale sniping alerts. Collectors talk to a buyer’s assistant to set **unlimited watches** (no dropdown taxonomies). A poller matches listings against watches and can SMS/email them.
 
-> Watches/profile live in `localStorage`. Twilio SMS + sale-watch scan APIs are wired. Stripe still mocked.
+> Watches/profile live in `localStorage`. Twilio SMS + sale-watch scan APIs are wired. Stripe Checkout is implemented at `/api/stripe` and fails closed until `STRIPE_SECRET_KEY` is set.
 
 ## Run locally
 
@@ -93,7 +93,7 @@ Status: `GET /api/watch/status` — seen IDs + recent matches (in-memory + `/tmp
 
 ### Cron (Vercel)
 
-`vercel.json` schedules **every 15 minutes** → `GET /api/watch/cron`.
+`vercel.json` is intentionally **cron-free**. `GET /api/watch/cron` still exists for a manual `Authorization: Bearer` call.
 
 - Requires `Authorization: Bearer ${CRON_SECRET}`.
 - Configure `CRON_ZIP`, `CRON_RADIUS_MILES`, `CRON_WATCH_TEXTS` (pipe-separated), optional `CRON_NOTIFY_PHONE`.
@@ -143,6 +143,10 @@ Copy `.env.example` → `.env.local` (never commit `.env.local`):
 | `GET /api/watch/cron` | Scheduled scan (Bearer `CRON_SECRET`) |
 | `GET /api/watch/status` | Seen/match store snapshot |
 | `POST /api/sms/test` | Test SMS |
+| `/pricing` | Free vs Pro and Checkout action |
+| `/subscribe` | Pro Checkout status |
+| `POST /api/stripe` | Create a Stripe Checkout session (503 if the secret key is missing) |
+| `POST /api/stripe/webhook` | `checkout.session.completed` plus subscription created/updated/deleted |
 
 ## Stack
 

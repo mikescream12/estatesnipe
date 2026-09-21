@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { clampRadiusMiles } from "@/lib/geoPure";
+import { resolveScanBilling } from "@/lib/billing";
 import { runScan, type ScanRequest } from "@/lib/scan";
 
 export const runtime = "nodejs";
@@ -19,6 +21,7 @@ export async function POST(request: Request) {
     );
   }
 
+  const billing = await resolveScanBilling(request.headers.get("cookie"));
   const result = await runScan({
     zip: body.zip,
     radiusMiles: body.radiusMiles,
@@ -26,26 +29,29 @@ export async function POST(request: Request) {
     onlyNew: body.onlyNew,
     notifyPhone: body.notifyPhone,
     excludeAuctions: body.excludeAuctions,
+    billing,
   });
 
   return NextResponse.json(result, { status: result.ok ? 200 : 400 });
 }
 
-/** GET helper for quick manual checks: /api/watch/scan?zip=75201&q=sterling */
+/** GET helper for quick manual checks: /api/watch/scan?zip=92886&q=sterling */
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const zip = searchParams.get("zip") || "";
   const q = searchParams.get("q") || searchParams.get("watch") || "";
-  const radius = Number(searchParams.get("radius") || "25");
+  const radius = clampRadiusMiles(searchParams.get("radius"), 25);
   const watchTexts = q
     ? q.split("|").map((s) => s.trim()).filter(Boolean)
     : ["estate"];
 
+  const billing = await resolveScanBilling(request.headers.get("cookie"));
   const result = await runScan({
     zip,
     radiusMiles: radius,
     watchTexts,
     onlyNew: false,
+    billing,
   });
   return NextResponse.json(result, { status: result.ok ? 200 : 400 });
 }

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { clampRadiusMiles } from "@/lib/geoPure";
 import { runScan } from "@/lib/scan";
 import { getStoreSnapshot } from "@/lib/store";
 
@@ -11,7 +12,7 @@ export const maxDuration = 60;
  * Auth: Authorization: Bearer ${CRON_SECRET}
  *
  * Watches for cron are configured via env:
- *   CRON_ZIP=75201
+ *   CRON_ZIP=92886
  *   CRON_RADIUS_MILES=25
  *   CRON_WATCH_TEXTS=sterling|hen on a nest|pokemon
  *   CRON_NOTIFY_PHONE=+1... (optional)
@@ -35,8 +36,17 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  const zip = (process.env.CRON_ZIP || "75201").trim();
-  const radiusMiles = Number(process.env.CRON_RADIUS_MILES || "25");
+  const zip = (process.env.CRON_ZIP || "").trim();
+  if (!/^\d{5}$/.test(zip)) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "CRON_ZIP must be a 5-digit US zip. Refusing to scan a default city.",
+      },
+      { status: 400 }
+    );
+  }
+  const radiusMiles = clampRadiusMiles(process.env.CRON_RADIUS_MILES, 25);
   const watchTexts = (process.env.CRON_WATCH_TEXTS || "sterling|pokemon|mcm")
     .split("|")
     .map((s) => s.trim())

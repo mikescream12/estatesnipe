@@ -3,8 +3,8 @@ import {
   DEFAULT_SAMPLE_SMS,
   TRIAL_SMS_TEMPLATE,
   getTwilioClient,
-  getTwilioFromNumber,
   isE164,
+  twilioSenderParams,
 } from "@/lib/twilio";
 
 export const runtime = "nodejs";
@@ -44,7 +44,7 @@ export async function POST(request: Request) {
   }
 
   // Trial accounts require a Twilio template name in Body (not free text).
-  // After upgrade, pass a custom body string via { body: "..." }.
+  // After upgrade (TWILIO_ALLOW_CUSTOM_BODY=1), default to DEFAULT_SAMPLE_SMS.
   const requested =
     typeof json.body === "string" && json.body.trim()
       ? json.body.trim()
@@ -61,17 +61,33 @@ export async function POST(request: Request) {
     "sms_feedback_surveys",
     "sms_internal_alerts",
   ]);
-  const useCustom = requested.length > 0 && !trialTemplates.has(requested) && !requested.startsWith("sms_");
-  const body = requested
-    ? requested
-    : TRIAL_SMS_TEMPLATE;
+  const allowCustom = process.env.TWILIO_ALLOW_CUSTOM_BODY === "1";
+  const useCustom =
+    requested.length > 0 &&
+    !trialTemplates.has(requested) &&
+    !requested.startsWith("sms_");
+
+  let payloadBody: string;
+  if (requested) {
+    if (useCustom) {
+      payloadBody = requested;
+    } else if (trialTemplates.has(requested) || requested.startsWith("sms_")) {
+      payloadBody = requested;
+    } else {
+      payloadBody = allowCustom ? requested : TRIAL_SMS_TEMPLATE;
+    }
+  } else {
+    payloadBody = allowCustom ? DEFAULT_SAMPLE_SMS : TRIAL_SMS_TEMPLATE;
+  }
 
   try {
     const client = getTwilioClient();
-    const from = getTwilioFromNumber();
-    // If caller sent free text, still try it (works post-upgrade); on trial prefer template.
-    const payloadBody = useCustom ? requested : (trialTemplates.has(body) || body.startsWith("sms_") ? body : TRIAL_SMS_TEMPLATE);
-    const message = await client.messages.create({ to, from, body: payloadBody });
+    const sender = twilioSenderParams();
+    const message = await client.messages.create({
+      to,
+      ...sender,
+      body: payloadBody,
+    });
     return NextResponse.json({ ok: true, sid: message.sid });
   } catch (err: unknown) {
     const twilioErr = err as {
