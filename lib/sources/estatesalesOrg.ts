@@ -115,6 +115,7 @@ export const estatesalesOrg: SaleSource = {
         rateKey: "eso",
         ttlMs: 5 * 60 * 1000,
         headers: { Accept: "text/html" },
+        timeoutMs: params.timeoutMs ?? 14_000,
       });
 
       if (status === 404) {

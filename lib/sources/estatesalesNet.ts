@@ -160,6 +160,7 @@ export const estatesalesNet: SaleSource = {
         rateKey: "esn",
         ttlMs: 3 * 60 * 1000,
         headers: { Accept: "application/json" },
+        timeoutMs: params.timeoutMs ?? 14_000,
       });
 
       if (status < 200 || status >= 300) {

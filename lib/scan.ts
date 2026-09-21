@@ -41,6 +41,17 @@ export type ScanRequest = {
   excludeAuctions?: boolean;
   /** Set by the request route. Omitted scans use the server paywall default and are not Pro. */
   billing?: ScanBillingInput;
+  /**
+   * Skip OpenAI vision entirely. Cron defaults this on so Hobby's ~60s
+   * ceiling is not burned by photo matching / 429 retries.
+   */
+  skipVision?: boolean;
+  /**
+   * Overall wall-clock budget in ms. When remaining time is exhausted,
+   * return ok:true with partial:true instead of hanging to a 504.
+   * Default: no hard budget (interactive scans). Cron uses ~50_000.
+   */
+  deadlineMs?: number;
 };
 
 export type ScanResponse = {
@@ -72,6 +83,10 @@ export type ScanResponse = {
     premiumVision: boolean;
   };
   error?: string;
+  /** True when the scan stopped early (budget / source timeout) with usable data */
+  partial?: boolean;
+  /** Wall clock for this scan */
+  durationMs?: number;
   plan?: {
     tier: "free" | "pro" | "ungated";
     paywallEnforced: boolean;
@@ -111,9 +126,12 @@ function smsBodyForHit(hit: MatchHit): string {
   return `EstateSnipe: “${kw}” may match${via} — ${title}. ${url}`;
 }
 
+const SMS_TIMEOUT_MS = 8_000;
+
 async function maybeSendSms(
   phone: string | undefined,
-  hits: MatchHit[]
+  hits: MatchHit[],
+  remainingMs?: number
 ): Promise<ScanResponse["sms"]> {
   if (!phone || hits.length === 0) {
     return { attempted: false, sent: false };
@@ -128,6 +146,17 @@ async function maybeSendSms(
   if (!isE164(phone)) {
     return { attempted: true, sent: false, error: "notifyPhone must be E.164" };
   }
+  const budget =
+    remainingMs == null
+      ? SMS_TIMEOUT_MS
+      : Math.min(SMS_TIMEOUT_MS, Math.max(0, remainingMs));
+  if (budget < 500) {
+    return {
+      attempted: true,
+      sent: false,
+      error: "Skipped SMS — scan budget exhausted",
+    };
+  }
 
   try {
     const client = getTwilioClient();
@@ -137,7 +166,18 @@ async function maybeSendSms(
     const top = hits[0];
     const custom = smsBodyForHit(top);
     const body = allowCustom ? custom : TRIAL_SMS_TEMPLATE;
-    const message = await client.messages.create({ to: phone, ...sender, body });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const message = await Promise.race([
+      client.messages.create({ to: phone, ...sender, body }),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`Twilio timed out after ${budget}ms`)),
+          budget
+        );
+      }),
+    ]).finally(() => {
+      if (timer) clearTimeout(timer);
+    });
     return { attempted: true, sent: true, sid: message.sid };
   } catch (err) {
     return {
@@ -162,6 +202,14 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
     proPriceLabel: PRO_PRICE_LABEL,
   };
   const scannedAt = new Date().toISOString();
+  const startedAt = Date.now();
+  const deadlineMs =
+    typeof req.deadlineMs === "number" && Number.isFinite(req.deadlineMs)
+      ? Math.max(5_000, Math.min(55_000, Math.floor(req.deadlineMs)))
+      : null;
+  const remaining = () =>
+    deadlineMs == null ? Number.POSITIVE_INFINITY : deadlineMs - (Date.now() - startedAt);
+  let partial = false;
 
   if (!/^\d{5}$/.test(zip)) {
     return {
@@ -175,6 +223,7 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
       matches: [],
       sources: [],
       error: "zip must be a 5-digit US postal code",
+      durationMs: Date.now() - startedAt,
     };
   }
 
@@ -193,6 +242,7 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
       matches: [],
       sources: [],
       error: "watchTexts must be a non-empty string array",
+      durationMs: Date.now() - startedAt,
     };
   }
 
@@ -214,12 +264,36 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
       matches: [],
       sources: [],
       error: `Could not verify location for zip ${zip}. No sales returned.`,
+      durationMs: Date.now() - startedAt,
+    };
+  }
+
+  if (remaining() < 2_000) {
+    return {
+      ok: true,
+      zip,
+      radiusMiles,
+      scannedAt,
+      listingCount: 0,
+      matchCount: 0,
+      newMatchCount: 0,
+      matches: [],
+      sources: [],
+      partial: true,
+      durationMs: Date.now() - startedAt,
+      error: "Scan budget exhausted before source fetch",
+      plan,
     };
   }
 
   // Fetch a bit beyond the hard radius so near-misses can appear.
   const fetchRadius = Math.min(100, Math.ceil(softMaxMiles(radiusMiles)));
-  const { listings, statuses } = await fetchAllSources({
+  // Leave ~8s after sources for geo/match/store/SMS under a deadline.
+  const sourceBudget =
+    deadlineMs == null
+      ? 14_000
+      : Math.min(14_000, Math.max(4_000, Math.floor(remaining() - 8_000)));
+  const fetched = await fetchAllSources({
     zip,
     radiusMiles: fetchRadius,
     hardRadiusMiles: radiusMiles,
@@ -229,7 +303,10 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
     state: origin.state,
     // ESN take:N is not strictly nearest-N; 50 can drop nearby sales (e.g. tools @ ~5 mi).
     limit: 80,
+    timeoutMs: sourceBudget,
   });
+  const { listings, statuses } = fetched;
+  if (fetched.partial) partial = true;
 
   const geoKept = await filterListingsByWatchGeo(listings, zip, radiusMiles);
   const geoListings = geoKept.map((g) => g.listing);
@@ -241,7 +318,13 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
   const textHitIds = new Set(textHits.map((h) => h.listing.id));
 
   const visionCfg = getVisionConfig();
-  const visionPass = access.allowVision
+  // Cron / budget path: never let vision eat the Hobby 60s ceiling.
+  // Interactive scans keep vision when plan + env allow it.
+  const skipVision =
+    req.skipVision === true ||
+    remaining() < 15_000 ||
+    !access.allowVision;
+  const visionPass = !skipVision
     ? await runVisionPass({
         listings: geoListings,
         watches,
@@ -257,6 +340,11 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
           candidates: 0,
           evaluated: 0,
           matched: 0,
+          skippedReason: req.skipVision
+            ? "cron_skip_vision"
+            : remaining() < 15_000
+              ? "budget_skip_vision"
+              : "vision_gated",
         },
       };
 
@@ -303,7 +391,8 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
 
   const sms = await maybeSendSms(
     req.notifyPhone,
-    smsHits.length ? smsHits : []
+    smsHits.length ? smsHits : [],
+    remaining()
   );
 
   void recorded;
@@ -321,9 +410,13 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
     sms,
     vision: {
       ...visionPass.stats,
-      visionEnabled: access.allowVision && visionCfg.visionEnabled,
-      premiumVision: access.allowVision && visionCfg.premiumVision,
+      visionEnabled:
+        access.allowVision && visionCfg.visionEnabled && !req.skipVision,
+      premiumVision:
+        access.allowVision && visionCfg.premiumVision && !req.skipVision,
     },
     plan,
+    ...(partial ? { partial: true } : {}),
+    durationMs: Date.now() - startedAt,
   };
 }

@@ -5,6 +5,7 @@ import { getStoreSnapshot } from "@/lib/store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+/** Hobby ceiling is 60s — scan must finish earlier via deadlineMs. */
 export const maxDuration = 60;
 
 /**
@@ -16,6 +17,9 @@ export const maxDuration = 60;
  *   CRON_RADIUS_MILES=25
  *   CRON_WATCH_TEXTS=sterling|hen on a nest|pokemon
  *   CRON_NOTIFY_PHONE=+1... (optional)
+ *
+ * Timing: vision is off by default on this path (set CRON_ENABLE_VISION=1 to
+ * opt in). Overall budget ~50s with per-source timeouts so Hobby does not 504.
  */
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET;
@@ -52,6 +56,10 @@ export async function GET(request: Request) {
     .map((s) => s.trim())
     .filter(Boolean);
   const notifyPhone = process.env.CRON_NOTIFY_PHONE || undefined;
+  // Default: skip vision on cron. Opt in with CRON_ENABLE_VISION=1.
+  const skipVision = !/^(1|true|yes|on)$/i.test(
+    (process.env.CRON_ENABLE_VISION || "").trim()
+  );
 
   const result = await runScan({
     zip,
@@ -59,6 +67,8 @@ export async function GET(request: Request) {
     watchTexts,
     onlyNew: true,
     notifyPhone,
+    skipVision,
+    deadlineMs: 50_000,
   });
 
   const snap = await getStoreSnapshot();

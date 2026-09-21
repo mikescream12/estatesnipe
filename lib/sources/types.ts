@@ -58,6 +58,8 @@ export type SourceFetchParams = {
   state?: string;
   /** Soft cap per source */
   limit?: number;
+  /** Per-source fetch budget in ms (sources pass through to HTTP) */
+  timeoutMs?: number;
 };
 
 export type SourceFetchResult = {
