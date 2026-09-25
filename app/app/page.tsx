@@ -180,9 +180,11 @@ export default function AppHomePage() {
       } else {
         setToast(data.error || messages.scanFailed);
       }
-    } catch {
-      setToast(messages.scanFailed);
-      setScanResult({ ok: false, error: messages.scanFailed });
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message ? err.message : messages.scanFailed;
+      setToast(message);
+      setScanResult({ ok: false, error: message });
     } finally {
       setScanning(false);
       setTimeout(() => setToast(""), 4000);
@@ -227,9 +229,10 @@ export default function AppHomePage() {
           <div className="mb-2 text-xs text-ss-muted">
             {messages.scanSources}:{" "}
             {(scanResult.sources || [])
-              .map(
-                (s) =>
-                  `${s.sourceId} (${s.listingCount}${s.ok ? "" : " !"})`
+              .map((s) =>
+                s.ok
+                  ? `${s.sourceId} (${s.listingCount})`
+                  : `${s.sourceId} failed${s.reason ? `: ${s.reason}` : ""}`
               )
               .join(" · ")}
           </div>

@@ -206,6 +206,22 @@ export function matchListings(
 
   for (const listing of listings) {
     for (const watch of watches) {
+      const rawWatch = watch.text.trim();
+      const skipAuctionsEarly = Boolean(watch.excludeAuctions);
+      if (rawWatch === "*" || /^anything$/i.test(rawWatch)) {
+        if (skipAuctionsEarly && listing.isAuction) continue;
+        hits.push({
+          listing,
+          matchedWatch: rawWatch,
+          matchedKeywords: ["anything"],
+          score: 1,
+          fields: ["title"],
+          outsideRadius: outsideMap?.get(listing.id) ?? false,
+          matchSource: "text",
+        });
+        continue;
+      }
+
       const { keywords, excludeAuctions } = watchTerms(watch.text);
       const skipAuctions = watch.excludeAuctions ?? excludeAuctions;
       if (skipAuctions && listing.isAuction) continue;

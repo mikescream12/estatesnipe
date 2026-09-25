@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "eval:vision": "npx --yes tsx scripts/eval-vision.ts",
-    "check:geo": "npx --yes tsx scripts/check-geo.ts"
+    "check:geo": "npx --yes tsx scripts/check-geo.ts",
+    "check:hunt": "npx --yes tsx scripts/check-hunt.ts"
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4",

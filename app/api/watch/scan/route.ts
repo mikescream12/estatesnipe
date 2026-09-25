@@ -29,6 +29,13 @@ export async function POST(request: Request) {
     onlyNew: body.onlyNew,
     notifyPhone: body.notifyPhone,
     excludeAuctions: body.excludeAuctions,
+    skipVision: body.skipVision,
+    deadlineMs: body.deadlineMs,
+    honorRadius: body.honorRadius,
+    includeNearby: body.includeNearby,
+    dateFrom: body.dateFrom,
+    dateTo: body.dateTo,
+    saleMode: body.saleMode,
     billing,
   });
 

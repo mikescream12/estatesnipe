@@ -28,7 +28,8 @@ import {
 } from "./vision/scanVision";
 import { getVisionConfig } from "./vision/config";
 import { isPaywallEnforced } from "./billing";
-import { gateScanAccess, PRO_PRICE_LABEL, type ScanBillingInput } from "./plans";
+import { PRO_PRICE_LABEL, resolveScanRadius, type ScanBillingInput } from "./plans";
+import { classifyListingDate } from "./saleWindow";
 
 export type ScanRequest = {
   zip: string;
@@ -52,6 +53,17 @@ export type ScanRequest = {
    * Default: no hard budget (interactive scans). Cron uses ~50_000.
    */
   deadlineMs?: number;
+  /**
+   * Chat searches pass true so "50 miles" is 50 miles. Cron leaves this
+   * unset and keeps the free-plan cap.
+   */
+  honorRadius?: boolean;
+  /** When keyword matches are empty, include the closest sales in the radius. */
+  includeNearby?: boolean;
+  /** ISO timestamps. Undated listings are kept. */
+  dateFrom?: string | null;
+  dateTo?: string | null;
+  saleMode?: "both" | "estate" | "auction";
 };
 
 export type ScanResponse = {
@@ -93,7 +105,14 @@ export type ScanResponse = {
     radiusCapped: boolean;
     visionGated: boolean;
     proPriceLabel: string;
+    honoredPastFreeCap?: boolean;
   };
+  /** Closest in-radius sales when nothing matched the keywords. */
+  nearby?: SaleListing[];
+  /** Listings kept that do not publish a start/end date. */
+  undatedCount?: number;
+  /** True when a free account asked past 25 miles and this scan used that radius. */
+  honoredPastFreeCap?: boolean;
 };
 
 function twilioConfigured(): boolean {
@@ -195,7 +214,12 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
     .replace(/\D/g, "");
   // 0 / NaN / missing → 25. Huge values cap at 100 so Texas is never "in range".
   const requestedRadius = clampRadiusMiles(req.radiusMiles, 25);
-  const access = gateScanAccess(requestedRadius, req.billing, isPaywallEnforced());
+  const access = resolveScanRadius(
+    requestedRadius,
+    req.billing,
+    isPaywallEnforced(),
+    req.honorRadius === true
+  );
   const radiusMiles = access.radiusMiles;
   const plan = {
     tier: access.tier,
@@ -203,6 +227,7 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
     radiusCapped: access.radiusCapped,
     visionGated: !access.allowVision,
     proPriceLabel: PRO_PRICE_LABEL,
+    honoredPastFreeCap: access.honoredPastFreeCap,
   };
   const scannedAt = new Date().toISOString();
   const startedAt = Date.now();
@@ -311,7 +336,18 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
   const { listings, statuses } = fetched;
   if (fetched.partial) partial = true;
 
-  const geoKept = await filterListingsByWatchGeo(listings, zip, radiusMiles);
+  const geoKeptAll = await filterListingsByWatchGeo(listings, zip, radiusMiles);
+  const window =
+    req.dateFrom && req.dateTo ? { from: req.dateFrom, to: req.dateTo } : null;
+  let undatedCount = 0;
+  const geoKept = geoKeptAll.filter((g) => {
+    if (req.saleMode === "estate" && g.listing.isAuction) return false;
+    if (req.saleMode === "auction" && !g.listing.isAuction) return false;
+    const dated = classifyListingDate(g.listing, window);
+    if (dated === "out") return false;
+    if (dated === "undated" && window) undatedCount += 1;
+    return true;
+  });
   const geoListings = geoKept.map((g) => g.listing);
   const outsideRadiusById = new Map(
     geoKept.map((g) => [g.listing.id, g.outsideRadius])
@@ -400,6 +436,21 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
 
   void recorded;
 
+  const reported = req.onlyNew === false ? matches : toReport;
+  const nearby =
+    req.includeNearby && reported.length === 0
+      ? [...geoListings]
+          .sort((a, b) => {
+            const da =
+              typeof a.distanceMiles === "number" ? a.distanceMiles : 9999;
+            const db =
+              typeof b.distanceMiles === "number" ? b.distanceMiles : 9999;
+            return da - db;
+          })
+          .slice(0, 8)
+          .map((listing) => ({ ...listing, description: "" }))
+      : undefined;
+
   return {
     ok: true,
     zip,
@@ -408,7 +459,10 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
     listingCount: geoListings.length,
     matchCount: allHits.length,
     newMatchCount: newHits.length,
-    matches: req.onlyNew === false ? matches : toReport,
+    matches: reported,
+    nearby,
+    undatedCount: window ? undatedCount : undefined,
+    honoredPastFreeCap: access.honoredPastFreeCap,
     sources: statuses,
     sms,
     vision: {

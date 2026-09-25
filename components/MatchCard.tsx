@@ -87,14 +87,14 @@ export function MatchCard({
   const isPhotoMatch = matchSource === "photo" || matchSource === "both";
 
   return (
-    <li className="overflow-hidden rounded-2xl border border-ss-line bg-[#0b0d11] shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
+    <li className="overflow-hidden rounded-2xl border border-ss-line bg-ss-card shadow-[0_8px_24px_rgba(33,29,23,0.08)]">
       <a
         href={listing.url}
         target="_blank"
         rel="noopener noreferrer"
         className="block text-inherit no-underline"
       >
-        <div className="relative aspect-[16/10] w-full overflow-hidden bg-gradient-to-br from-[#1a2030] via-[#12151b] to-[#0b0d11]">
+        <div className="relative aspect-[16/10] w-full overflow-hidden bg-gradient-to-br from-ss-brand-50 via-[#e7f5f2] to-[#dce8e4]">
           {showHero ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -107,7 +107,7 @@ export function MatchCard({
             />
           ) : (
             <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-4 text-center">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-ss-line bg-[rgba(255,255,255,0.04)] text-ss-muted">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-ss-line bg-white/80 text-ss-muted">
                 <svg
                   width="22"
                   height="22"
@@ -140,7 +140,9 @@ export function MatchCard({
             </div>
           )}
 
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/75 via-black/35 to-transparent" />
+          {showHero ? (
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/75 via-black/35 to-transparent" />
+          ) : null}
 
           <div className="absolute left-2.5 top-2.5 flex max-w-[90%] flex-wrap gap-1.5">
             {outsideRadius ? (
@@ -174,18 +176,22 @@ export function MatchCard({
           </div>
 
           <div className="absolute bottom-2.5 left-3 right-3">
-            <div className="line-clamp-2 text-[0.95rem] font-semibold leading-snug text-white drop-shadow">
+            <div
+              className={`line-clamp-2 text-[0.95rem] font-semibold leading-snug ${
+                showHero ? "text-white drop-shadow" : "text-ss-text"
+              }`}
+            >
               {listing.title}
             </div>
           </div>
         </div>
 
         {thumbs.length > 0 ? (
-          <div className="grid grid-cols-3 gap-1.5 bg-[#0b0d11] px-2.5 pt-2.5">
+          <div className="grid grid-cols-3 gap-1.5 bg-ss-card px-2.5 pt-2.5">
             {thumbs.map((src, i) => (
               <div
                 key={`${listing.id}-t-${i}`}
-                className="relative aspect-[4/3] overflow-hidden rounded-lg border border-ss-line bg-[#12151b]"
+                className="relative aspect-[4/3] overflow-hidden rounded-lg border border-ss-line bg-ss-bg"
               >
                 {!brokenThumbs[i] ? (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -200,7 +206,7 @@ export function MatchCard({
                     }
                   />
                 ) : (
-                  <div className="h-full w-full bg-[#151922]" />
+                  <div className="h-full w-full bg-ss-bg" />
                 )}
               </div>
             ))}
@@ -241,7 +247,7 @@ export function MatchCard({
           ) : null}
 
           {outsideRadius ? (
-            <p className="text-[0.72rem] text-red-300/90">
+            <p className="text-[0.72rem] text-red-700">
               {`Slightly outside your ${radiusMiles ?? "?"} mi radius`}
               {listing.distanceMiles != null
                 ? ` · ${listing.distanceMiles} mi away`

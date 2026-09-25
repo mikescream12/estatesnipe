@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { BrandHeader } from "@/components/BrandHeader";
 import { ContactConsentForm } from "@/components/ContactConsentForm";
-import { HuntChat } from "@/components/HuntChat";
+import { ChatHome } from "@/components/ChatHome";
 import { InstallBanner } from "@/components/InstallBanner";
 import { PhoneShell } from "@/components/PhoneShell";
 import { useLocale } from "@/lib/LocaleContext";
@@ -52,9 +52,8 @@ export default function LandingPage() {
         Example: search a keyword, then the text that hits the phone.
       </p>
 
-      <div className="mb-4 rounded-[18px] border border-ss-line bg-ss-card p-4">
-        <label className="field-label mb-3 block">{messages.huntingLabel}</label>
-        <HuntChat />
+      <div className="mb-4">
+        <ChatHome />
       </div>
 
       <p className="mb-3 whitespace-pre-line text-center text-[0.72rem] text-ss-muted">

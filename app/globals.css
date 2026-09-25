@@ -1,15 +1,17 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #0f1115;
-  --card: #1a1d24;
-  --text: #f4f5f7;
-  --muted: #9aa3b2;
-  --accent: #e8a54b;
-  --accent2: #3dd6c6;
-  --line: #2a303b;
-  --danger: #ff6b6b;
-  --input: #12151b;
+  --bg: #faf9f6;
+  --card: #ffffff;
+  --text: #211d17;
+  --muted: #6b6252;
+  --accent: #0f766e;
+  --accent2: #0f766e;
+  --line: #e0d8c8;
+  --danger: #dc2626;
+  --input: #fffcf7;
+  --brand-50: #f0fdfa;
+  --brand-100: #ccfbf1;
 }
 
 @theme inline {
@@ -22,6 +24,8 @@
   --color-ss-line: var(--line);
   --color-ss-danger: var(--danger);
   --color-ss-input: var(--input);
+  --color-ss-brand-50: var(--brand-50);
+  --color-ss-brand-100: var(--brand-100);
   --font-sans: var(--font-geist-sans);
 }
 
@@ -36,7 +40,7 @@ body {
 
 body {
   margin: 0;
-  background: radial-gradient(1200px 600px at 50% -10%, #243049 0%, var(--bg) 55%);
+  background: var(--bg);
   color: var(--text);
   font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
 }
@@ -44,14 +48,16 @@ body {
 input[type="text"],
 input[type="tel"],
 input[type="email"],
-input[type="number"] {
+input[type="number"],
+textarea,
+select {
   width: 100%;
   background: var(--input);
   border: 1px solid var(--line);
   color: var(--text);
   border-radius: 12px;
   padding: 12px 14px;
-  font-size: 1rem;
+  font-size: 16px;
   outline: none;
 }
 
@@ -59,8 +65,24 @@ input:focus {
   border-color: var(--accent);
 }
 
-input::placeholder {
-  color: #6b7383;
+input::placeholder,
+textarea::placeholder {
+  color: #8a8172;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  border-radius: 8px;
+  font-weight: 700;
+}
+
+.btn-primary:hover {
+  background: #0d9488;
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
 }
 
 label.field-label {
