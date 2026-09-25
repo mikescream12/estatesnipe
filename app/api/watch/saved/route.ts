@@ -1,73 +1,91 @@
-import { readSavedWatches, savedWatchClientIdOk, writeSavedWatches } from "@/lib/savedWatches";
+import { NextResponse } from "next/server";
+import {
+  deleteClient,
+  isSafeClientId,
+  listClient,
+  upsertClient,
+  watchStoreReady,
+  type UpsertInput,
+} from "@/lib/savedWatches";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Body = {
-  clientId?: string;
-  phone?: string;
-  email?: string;
-  consentAlerts?: boolean;
-  consentMarketing?: boolean;
-  minAlertValueUsd?: number | null;
-  saleMode?: string;
-  watches?: Array<{
-    id?: string;
-    keyword?: string;
-    zip?: string;
-    radiusMi?: number;
-    excludeAuctions?: boolean;
-  }>;
-};
-
-export async function GET(req: Request) {
-  const clientId = new URL(req.url).searchParams.get("clientId") || "";
-  if (!savedWatchClientIdOk(clientId)) {
-    return Response.json({ ok: false, error: "clientId required" }, { status: 400 });
+/**
+ * Browser sync for saved watches.
+ * POST replaces the document for clientId (full local list + profile).
+ * GET lists that client's watches. DELETE removes the document.
+ */
+export async function POST(request: Request) {
+  let body: UpsertInput;
+  try {
+    body = (await request.json()) as UpsertInput;
+  } catch {
+    return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 });
   }
-  const record = await readSavedWatches(clientId);
-  return Response.json({ ok: true, record });
+  try {
+    const result = await upsertClient(body);
+    if (!result.ok) {
+      return NextResponse.json(
+        { ok: false, error: result.error },
+        { status: result.status }
+      );
+    }
+    return NextResponse.json({ ok: true, watches: result.watches, count: result.watches.length });
+  } catch {
+    return NextResponse.json({ ok: false, error: "Could not save watches" }, { status: 500 });
+  }
 }
 
-export async function POST(req: Request) {
-  let body: Body;
+export async function GET(request: Request) {
+  if (!watchStoreReady()) {
+    return NextResponse.json(
+      { ok: false, error: "Watch store unavailable. BLOB_READ_WRITE_TOKEN is not set." },
+      { status: 503 }
+    );
+  }
+  const clientId = new URL(request.url).searchParams.get("clientId") || "";
+  if (!isSafeClientId(clientId)) {
+    return NextResponse.json(
+      { ok: false, error: "clientId query param required" },
+      { status: 400 }
+    );
+  }
   try {
-    body = (await req.json()) as Body;
+    const watches = await listClient(clientId);
+    return NextResponse.json({ ok: true, clientId, watches, count: watches.length });
   } catch {
-    return Response.json({ ok: false, error: "Invalid JSON" }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "Could not list watches" }, { status: 500 });
   }
-  const clientId = (body.clientId || "").trim();
-  if (!savedWatchClientIdOk(clientId)) {
-    return Response.json({ ok: false, error: "clientId required" }, { status: 400 });
+}
+
+export async function DELETE(request: Request) {
+  if (!watchStoreReady()) {
+    return NextResponse.json(
+      { ok: false, error: "Watch store unavailable. BLOB_READ_WRITE_TOKEN is not set." },
+      { status: 503 }
+    );
   }
-  const saleMode =
-    body.saleMode === "estate" || body.saleMode === "auction" || body.saleMode === "both"
-      ? body.saleMode
-      : "both";
-  const min =
-    typeof body.minAlertValueUsd === "number" &&
-    Number.isFinite(body.minAlertValueUsd) &&
-    body.minAlertValueUsd > 0
-      ? Math.round(body.minAlertValueUsd)
-      : null;
-  const watches = (body.watches || [])
-    .filter((w) => w && typeof w.keyword === "string" && w.keyword.trim())
-    .slice(0, 40)
-    .map((w) => ({
-      id: String(w.id || ""),
-      keyword: String(w.keyword).slice(0, 80),
-      zip: String(w.zip || ""),
-      radiusMi: Number(w.radiusMi) || 25,
-      excludeAuctions: Boolean(w.excludeAuctions),
-    }));
-  const result = await writeSavedWatches({
-    clientId,
-    phone: String(body.phone || ""),
-    email: String(body.email || ""),
-    consentAlerts: Boolean(body.consentAlerts),
-    consentMarketing: Boolean(body.consentMarketing),
-    minAlertValueUsd: min,
-    saleMode,
-    watches,
-  });
-  return Response.json({ ok: true, stored: result.stored });
+  const urlId = new URL(request.url).searchParams.get("clientId") || "";
+  let clientId = urlId;
+  if (!clientId) {
+    try {
+      const body = (await request.json()) as { clientId?: string };
+      clientId = String(body.clientId || "");
+    } catch {
+      clientId = "";
+    }
+  }
+  if (!isSafeClientId(clientId)) {
+    return NextResponse.json(
+      { ok: false, error: "clientId query param required" },
+      { status: 400 }
+    );
+  }
+  try {
+    const deleted = await deleteClient(clientId);
+    return NextResponse.json({ ok: deleted, clientId, deleted });
+  } catch {
+    return NextResponse.json({ ok: false, error: "Could not delete watches" }, { status: 500 });
+  }
 }

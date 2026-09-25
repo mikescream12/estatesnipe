@@ -4,12 +4,17 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useLocale } from "@/lib/LocaleContext";
 
+/** One Home = chat hunt. No separate Chat tab. */
 const links = [
-  { href: "/", key: "navLanding" as const, match: (p: string) => p === "/" },
-  { href: "/app", key: "navHome" as const, match: (p: string) => p === "/app" },
+  {
+    href: "/",
+    key: "navHome" as const,
+    match: (p: string) =>
+      p === "/" || p === "/app" || p.startsWith("/app/chat"),
+  },
   {
     href: "/app/sample-alert",
-    key: "navSample" as const,
+    key: "tabAlert" as const,
     match: (p: string) => p.startsWith("/app/sample-alert"),
   },
 ];
@@ -19,17 +24,17 @@ export function AppNav() {
   const { messages } = useLocale();
 
   return (
-    <nav className="mb-3 grid grid-cols-3 gap-2">
+    <nav className="mb-4 grid grid-cols-2 gap-2 rounded-full bg-[#efebe3] p-1">
       {links.map((l) => {
         const on = l.match(pathname);
         return (
           <Link
             key={l.href}
             href={l.href}
-            className={`rounded-xl border px-2 py-2.5 text-center text-xs font-semibold ${
+            className={`rounded-full px-2 py-2.5 text-center text-xs font-bold transition ${
               on
-                ? "border-ss-accent2 bg-[rgba(61,214,198,0.1)] text-ss-text"
-                : "border-ss-line text-ss-muted"
+                ? "bg-ss-accent text-white shadow-sm"
+                : "text-ss-muted hover:text-ss-text"
             }`}
           >
             {messages[l.key]}

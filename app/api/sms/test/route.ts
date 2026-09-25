@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
+import { normalizePhone } from "@/lib/phone";
 import {
-  DEFAULT_SAMPLE_SMS,
   TRIAL_SMS_TEMPLATE,
   getTwilioClient,
-  isE164,
-  twilioSenderParams,
+  getTwilioFromNumber,
 } from "@/lib/twilio";
 
 export const runtime = "nodejs";
@@ -25,26 +24,27 @@ export async function POST(request: Request) {
     );
   }
 
-  const to = typeof json.to === "string" ? json.to.trim() : "";
-  if (!to) {
+  const rawTo = typeof json.to === "string" ? json.to.trim() : "";
+  if (!rawTo) {
     return NextResponse.json(
       { ok: false, error: "Missing 'to' phone number." },
       { status: 400 }
     );
   }
-  if (!isE164(to)) {
+  const to = normalizePhone(rawTo);
+  if (!to) {
     return NextResponse.json(
       {
         ok: false,
         error:
-          "Invalid 'to' number. Use E.164 format, e.g. +12145550199 (leading +, country code, digits only).",
+          "Invalid US phone number. Try 7143459641, (714) 345-9641, or +17143459641.",
       },
       { status: 400 }
     );
   }
 
   // Trial accounts require a Twilio template name in Body (not free text).
-  // After upgrade (TWILIO_ALLOW_CUSTOM_BODY=1), default to DEFAULT_SAMPLE_SMS.
+  // After upgrade, pass a custom body string via { body: "..." }.
   const requested =
     typeof json.body === "string" && json.body.trim()
       ? json.body.trim()
@@ -61,33 +61,22 @@ export async function POST(request: Request) {
     "sms_feedback_surveys",
     "sms_internal_alerts",
   ]);
-  const allowCustom = process.env.TWILIO_ALLOW_CUSTOM_BODY === "1";
-  const useCustom =
-    requested.length > 0 &&
-    !trialTemplates.has(requested) &&
-    !requested.startsWith("sms_");
-
-  let payloadBody: string;
-  if (requested) {
-    if (useCustom) {
-      payloadBody = requested;
-    } else if (trialTemplates.has(requested) || requested.startsWith("sms_")) {
-      payloadBody = requested;
-    } else {
-      payloadBody = allowCustom ? requested : TRIAL_SMS_TEMPLATE;
-    }
-  } else {
-    payloadBody = allowCustom ? DEFAULT_SAMPLE_SMS : TRIAL_SMS_TEMPLATE;
-  }
+  const useCustom = requested.length > 0 && !trialTemplates.has(requested) && !requested.startsWith("sms_");
+  const body = requested
+    ? requested
+    : TRIAL_SMS_TEMPLATE;
 
   try {
     const client = getTwilioClient();
-    const sender = twilioSenderParams();
-    const message = await client.messages.create({
-      to,
-      ...sender,
-      body: payloadBody,
-    });
+    const messagingServiceSid = (process.env.TWILIO_MESSAGING_SERVICE_SID || "").trim();
+    const from = messagingServiceSid ? undefined : getTwilioFromNumber();
+    // If caller sent free text, still try it (works post-upgrade); on trial prefer template.
+    const payloadBody = useCustom ? requested : (trialTemplates.has(body) || body.startsWith("sms_") ? body : TRIAL_SMS_TEMPLATE);
+    const message = await client.messages.create(
+      messagingServiceSid
+        ? { to, body: payloadBody, messagingServiceSid }
+        : { to, from: from!, body: payloadBody }
+    );
     return NextResponse.json({ ok: true, sid: message.sid });
   } catch (err: unknown) {
     const twilioErr = err as {

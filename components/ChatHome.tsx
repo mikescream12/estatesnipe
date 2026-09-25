@@ -1,432 +1,550 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { MatchCard } from "@/components/MatchCard";
-import { useLocale } from "@/lib/LocaleContext";
 import {
-  applyHuntTurn,
-  describeHunt,
-  emptyHuntQuery,
-  type HuntQuery,
-  type SaleMode,
-} from "@/lib/huntTurn";
-import {
-  executeHuntScan,
-  type HuntListing,
-  type HuntMatch,
-  type HuntPostResult,
-} from "@/lib/huntScan";
-import { addWatches, deleteWatch, loadProfile, loadWatches, saveProfile, saveWatches, type Watch } from "@/lib/watches";
-import { isFounderPhone } from "@/lib/founder";
-import { parseFlipMention, parseMinAlertUsd } from "@/lib/flipValue";
-import { buildMultiStopMapsUrl } from "@/lib/routePlan";
-import { normalizePhone } from "@/lib/phone";
+  MAX_MAPS_STOPS,
+  buildMultiStopMapsUrl,
+  sortStopsForRoute,
+} from "@/lib/routePlan";
 import { CheckoutButton } from "@/components/CheckoutButton";
+import { EXAMPLE_PROMPTS } from "@/lib/chatPersonality";
+import { isFounderPhone } from "@/lib/founder";
+import { clampRadiusMiles, preferredZip } from "@/lib/geoPure";
+import { describeHunt, applyHuntTurn, emptyHuntQuery, type HuntQuery } from "@/lib/huntTurn";
+import { executeHuntScan, type HuntPostResult } from "@/lib/huntScan";
+import { useLocale } from "@/lib/LocaleContext";
+import { parseWatchIntent } from "@/lib/parseWatchIntent";
+import { normalizePhone } from "@/lib/phone";
+import { FREE_RADIUS_MI, PRO_MAX_RADIUS_MI } from "@/lib/plans";
+import {
+  addWatches,
+  deleteWatch,
+  loadProfile,
+  loadWatches,
+  saveProfile,
+  saveWatches,
+  type Watch,
+} from "@/lib/watches";
+import { pushLocalState } from "@/lib/watchSync";
 
-type Msg = {
-  id: string;
-  role: "user" | "assistant";
-  text: string;
-  pending?: boolean;
-  matches?: HuntMatch[];
-  nearby?: HuntListing[];
-  radiusMiles?: number;
+type ScanMatch = {
+  listing: {
+    id: string;
+    title: string;
+    url: string;
+    sourceId: string;
+    city?: string | null;
+    state?: string | null;
+    zip?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
+    distanceMiles?: number | null;
+    photos?: Array<{ url: string; thumbnailUrl?: string }>;
+  };
+  matchedWatch: string;
+  matchedKeywords: string[];
+  score: number;
+  isNew: boolean;
+  outsideRadius?: boolean;
+  matchSource?: "text" | "photo" | "both";
+  visionConfidence?: number;
+  visionReason?: string;
+  visionLabels?: string[];
+  itemGuess?: string;
+  portable?: boolean | null;
+  flipNotes?: string;
+  flipMode?: boolean;
+  flipValueLabel?: string;
+  flipValueMidUsd?: number | null;
+  ebayConfigured?: boolean;
+  ebayCompsNote?: string;
+  sellThroughPct?: number | null;
+  clearsMinAlert?: boolean | null;
+  minAlertValueUsd?: number | null;
 };
 
-const EXAMPLES = [
-  "Find furniture within 10 miles of 92886",
-  "Sterling and jewelry within 25 miles of 92886",
-  "All sales this weekend near 92886",
-];
+type ScanResult = {
+  ok: boolean;
+  error?: string;
+  listingCount?: number;
+  matchCount?: number;
+  newMatchCount?: number;
+  radiusMiles?: number;
+  matches?: ScanMatch[];
+  sources?: Array<{
+    sourceId: string;
+    ok: boolean;
+    listingCount: number;
+    reason?: string;
+  }>;
+  vision?: {
+    enabled?: boolean;
+    visionEnabled?: boolean;
+    matched?: number;
+    evaluated?: number;
+    skippedReason?: string;
+  };
+  plan?: {
+    tier?: "free" | "pro" | "ungated";
+    paywallEnforced?: boolean;
+    radiusCapped?: boolean;
+  };
+};
 
-function nextId(): string {
-  return Math.random().toString(36).slice(2, 10);
+type Msg =
+  | { id: string; role: "user"; text: string }
+  | {
+      id: string;
+      role: "assistant";
+      text: string;
+      matches?: ScanMatch[];
+      radiusMiles?: number;
+      scanning?: boolean;
+    };
+
+function uid() {
+  return crypto.randomUUID();
 }
 
-async function postScan(
-  body: Record<string, unknown>,
-  timeoutMs: number,
-  signal?: AbortSignal
-): Promise<HuntPostResult> {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort("timeout"), timeoutMs);
-  const onAbort = () => ctrl.abort(signal?.reason || "superseded");
-  if (signal) {
-    if (signal.aborted) onAbort();
-    else signal.addEventListener("abort", onAbort, { once: true });
-  }
+function focusComposer(el: HTMLTextAreaElement | null) {
+  if (!el) return;
+  el.focus();
   try {
-    const res = await fetch("/api/watch/scan", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: ctrl.signal,
-    });
-    const text = await res.text();
-    try {
-      return { status: res.status, data: JSON.parse(text) as HuntPostResult["data"] };
-    } catch {
-      const snippet = text.replace(/\s+/g, " ").trim().slice(0, 160);
-      return {
-        status: res.status,
-        data: null,
-        errorText: snippet || `the server responded ${res.status}`,
-      };
-    }
-  } catch (err) {
-    const reason = ctrl.signal.reason;
-    if (reason === "timeout") {
-      return {
-        status: 0,
-        data: null,
-        errorText: `no answer after ${Math.round(timeoutMs / 1000)} seconds`,
-      };
-    }
-    if (reason === "superseded") {
-      return { status: 0, data: null, errorText: "superseded" };
-    }
-    return {
-      status: 0,
-      data: null,
-      errorText: err instanceof Error ? err.message : "the request failed",
-    };
-  } finally {
-    clearTimeout(timer);
-    signal?.removeEventListener("abort", onAbort);
+    const len = el.value.length;
+    el.setSelectionRange(len, len);
+  } catch {
+    /* older WebKit */
   }
 }
 
 export function ChatHome() {
   const { locale, messages } = useLocale();
-  const [query, setQuery] = useState<HuntQuery>(() => emptyHuntQuery());
   const [input, setInput] = useState("");
   const [msgs, setMsgs] = useState<Msg[]>([]);
-  const [savedNote, setSavedNote] = useState("");
-  const [flipMode, setFlipMode] = useState(false);
-  const [minAlert, setMinAlert] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [saleMode, setSaleMode] = useState<"both" | "estate" | "auction">(
+    "both"
+  );
+  const [founderPro, setFounderPro] = useState(false);
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [watches, setWatches] = useState<Watch[]>([]);
-  const [founder, setFounder] = useState(false);
-  const flipRef = useRef(false);
-  const alertRef = useRef<number | null>(null);
-  const queryRef = useRef(query);
-  const scrollerRef = useRef<HTMLDivElement>(null);
-  const abortRef = useRef<AbortController | null>(null);
-  const boxRef = useRef<HTMLTextAreaElement>(null);
-
-  useEffect(() => {
-    queryRef.current = query;
-  }, [query]);
+  const [profileZip, setProfileZip] = useState("");
+  const [profileRadius, setProfileRadius] = useState(25);
+  const [keepTexting, setKeepTexting] = useState(false);
+  const [minAlertValueUsd, setMinAlertValueUsd] = useState<number | null>(null);
+  const [flipModeActive, setFlipModeActive] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const queryRef = useRef<HuntQuery>(emptyHuntQuery());
+  const scanGen = useRef(0);
 
   useEffect(() => {
     const profile = loadProfile();
-    if (profile?.zip && /^\d{5}$/.test(profile.zip)) {
-      setQuery((q) =>
-        emptyHuntQuery({
-          ...q,
-          zip: profile.zip,
-          radiusMi: profile.radiusMi || q.radiusMi,
-        })
-      );
-    }
-    if (typeof profile?.minAlertValueUsd === "number" && profile.minAlertValueUsd > 0) {
-      alertRef.current = profile.minAlertValueUsd;
-      setMinAlert(profile.minAlertValueUsd);
-    }
-    setFounder(isFounderPhone(profile?.phone));
-    setWatches(loadWatches());
-    const savedMode = window.localStorage.getItem("estatesnipe.saleMode");
-    if (savedMode === "estate" || savedMode === "auction" || savedMode === "both") {
-      setQuery((q) => ({ ...q, saleMode: savedMode }));
-    }
-    void syncSaved();
-  }, []);
-
-  useEffect(() => {
-    scrollerRef.current?.scrollTo({
-      top: scrollerRef.current.scrollHeight,
-      behavior: "smooth",
+    if (profile?.zip) setProfileZip(profile.zip);
+    if (profile?.radiusMi) setProfileRadius(profile.radiusMi);
+    queryRef.current = emptyHuntQuery({
+      zip: profile?.zip || "",
+      radiusMi: profile?.radiusMi || 25,
     });
-  }, [msgs]);
-
-  useEffect(() => {
-    return () => abortRef.current?.abort("superseded");
-  }, []);
-
-  function remember(next: HuntQuery) {
-    const profile = loadProfile();
-    saveProfile({
-      phone: profile?.phone || "",
-      email: profile?.email || "",
-      zip: next.zip || profile?.zip || "",
-      radiusMi: next.radiusMi,
-      consentAlerts: Boolean(profile?.consentAlerts),
-      consentMarketing: Boolean(profile?.consentMarketing),
-      minAlertValueUsd: alertRef.current,
-    });
-  }
-
-  function syncSaved() {
-    const idKey = "estatesnipe.clientId.v1";
-    let clientId = window.localStorage.getItem(idKey) || "";
-    if (!/^[A-Za-z0-9_-]{8,80}$/.test(clientId)) {
-      clientId = crypto.randomUUID();
-      window.localStorage.setItem(idKey, clientId);
-    }
-    const profile = loadProfile();
-    const mode = window.localStorage.getItem("estatesnipe.saleMode");
-    void fetch("/api/watch/saved", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        clientId,
-        phone: normalizePhone(profile?.phone || "") || profile?.phone || "",
-        email: profile?.email || "",
-        consentAlerts: Boolean(profile?.consentAlerts),
-        consentMarketing: Boolean(profile?.consentMarketing),
-        minAlertValueUsd: alertRef.current,
-        saleMode: mode === "estate" || mode === "auction" || mode === "both" ? mode : "both",
-        watches: loadWatches().map((w) => ({
-          id: w.id,
-          keyword: w.keyword,
-          zip: w.zip,
-          radiusMi: w.radiusMi,
-          excludeAuctions: Boolean(w.excludeAuctions),
-        })),
-      }),
-    }).catch(() => undefined);
-  }
-
-  async function scanWith(next: HuntQuery, preface?: string, botId?: string) {
-    const id = botId || nextId();
-    if (!botId) {
-      setMsgs((m) => [
-        ...m,
-        {
-          id,
-          role: "assistant",
-          pending: true,
-          text: `${preface ? `${preface} ` : ""}Searching ${describeHunt(next, locale)}…`,
-        },
-      ]);
-    }
-    abortRef.current?.abort("superseded");
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
-    const profile = loadProfile();
-    const phone = normalizePhone(profile?.phone || "") || profile?.phone || "";
-    const outcome = await executeHuntScan(
-      next,
-      (body, timeoutMs) => postScan(body, timeoutMs, ctrl.signal),
-      locale,
-      preface,
-      {
-        flipMode: flipRef.current,
-        minAlertValueUsd: alertRef.current,
-        clientPhone: phone || undefined,
-        notifyPhone: profile?.consentAlerts && phone ? phone : undefined,
-        notifyEmail: profile?.consentAlerts && profile.email ? profile.email : undefined,
-      }
+    setFounderPro(isFounderPhone(profile?.phone));
+    setKeepTexting(Boolean(profile?.consentAlerts && profile?.phone));
+    setMinAlertValueUsd(
+      typeof profile?.minAlertValueUsd === "number" &&
+        Number.isFinite(profile.minAlertValueUsd) &&
+        profile.minAlertValueUsd > 0
+        ? Math.round(profile.minAlertValueUsd)
+        : null
     );
-    const superseded = outcome.text.includes("superseded") && ctrl.signal.aborted;
+    setWatches(loadWatches());
+    const saved = window.localStorage.getItem("estatesnipe.saleMode");
+    if (saved === "estate" || saved === "auction" || saved === "both") {
+      setSaleMode(saved);
+      queryRef.current = { ...queryRef.current, saleMode: saved };
+    }
+    void pushLocalState();
+  }, []);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [msgs, busy, alertsOpen]);
+
+  function chooseSaleMode(mode: "both" | "estate" | "auction") {
+    setSaleMode(mode);
+    queryRef.current = { ...queryRef.current, saleMode: mode };
+    window.localStorage.setItem("estatesnipe.saleMode", mode);
+    void pushLocalState();
+  }
+
+  async function runHunt(rawText: string) {
+    const text = rawText.trim();
+    if (!text || busy) return;
+
+    const gen = ++scanGen.current;
+    setInput("");
+    setBusy(true);
+
+    const userMsg: Msg = { id: uid(), role: "user", text };
+    const scanningId = uid();
+    setMsgs((m) => [
+      ...m,
+      userMsg,
+      {
+        id: scanningId,
+        role: "assistant",
+        text: locale === "es" ? "Buscando…" : "Searching…",
+        scanning: true,
+      },
+    ]);
+
+    const profile = loadProfile();
+    const profilePhone =
+      normalizePhone(profile?.phone) || profile?.phone || "";
+    const unlocked = isFounderPhone(profilePhone);
+    setFounderPro(unlocked);
+
+    const parsed = parseWatchIntent(text, locale);
+    let huntFlip = flipModeActive;
+    if (parsed.flipMode) huntFlip = true;
+    setFlipModeActive(huntFlip);
+    let activeMinAlert = minAlertValueUsd;
+    if (parsed.minAlertValueUsd != null) {
+      activeMinAlert = parsed.minAlertValueUsd;
+      setMinAlertValueUsd(parsed.minAlertValueUsd);
+    }
+
+    const seeded: HuntQuery = {
+      ...queryRef.current,
+      zip: queryRef.current.zip || profileZip,
+      radiusMi: queryRef.current.radiusMi || profileRadius || 25,
+      saleMode,
+    };
+    const turn = applyHuntTurn(seeded, text, locale);
+    queryRef.current = turn.query;
+
+    const finish = (patch: Partial<Extract<Msg, { role: "assistant" }>>) => {
+      if (scanGen.current !== gen) return;
+      setMsgs((m) =>
+        m.map((msg) =>
+          msg.id === scanningId && msg.role === "assistant"
+            ? { ...msg, scanning: false, ...patch }
+            : msg
+        )
+      );
+    };
+
+    if (turn.action === "ask") {
+      if (parsed.minAlertValueUsd != null) {
+        const prev = loadProfile();
+        saveProfile({
+          phone: prev?.phone || "",
+          email: prev?.email || "",
+          zip: prev?.zip || profileZip || "",
+          radiusMi: prev?.radiusMi || profileRadius || 25,
+          consentAlerts: Boolean(prev?.consentAlerts),
+          consentMarketing: Boolean(prev?.consentMarketing),
+          minAlertValueUsd: parsed.minAlertValueUsd,
+        });
+        void pushLocalState();
+      }
+      finish({ text: turn.ask || parsed.reply });
+      setBusy(false);
+      inputRef.current?.focus();
+      return;
+    }
+
+    const q = turn.query;
+    setProfileZip(q.zip);
+    setProfileRadius(q.radiusMi);
+    setSaleMode(q.saleMode);
     setMsgs((m) =>
       m.map((msg) =>
-        msg.id === id
+        msg.id === scanningId && msg.role === "assistant"
           ? {
               ...msg,
-              pending: false,
-              text: superseded
-                ? locale === "es"
-                  ? "Paré esta búsqueda porque enviaste otro mensaje."
-                  : "Stopped this search because you sent another message."
-                : outcome.text,
-              matches: superseded ? [] : outcome.matches,
-              nearby: superseded ? [] : outcome.nearby,
-              radiusMiles: outcome.radiusMiles,
+              text:
+                locale === "es"
+                  ? `Buscando ${describeHunt(q, locale)}…`
+                  : `Searching ${describeHunt(q, locale)}…`,
             }
           : msg
       )
     );
-  }
 
-  async function submitText(text: string) {
-    const trimmed = text.trim();
-    if (!trimmed) return;
-    const flipMention = parseFlipMention(trimmed);
-    if (flipMention === "on") {
-      flipRef.current = true;
-      setFlipMode(true);
-    } else if (flipMention === "off") {
-      flipRef.current = false;
-      setFlipMode(false);
-    }
-    const alert = parseMinAlertUsd(trimmed);
-    if (alert != null) {
-      alertRef.current = alert;
-      setMinAlert(alert);
-    }
-    setInput("");
-    setSavedNote("");
-    const turn = applyHuntTurn(queryRef.current, trimmed, locale, new Date());
-    queryRef.current = turn.query;
-    setQuery(turn.query);
-    const userId = nextId();
-    setMsgs((m) => [...m, { id: userId, role: "user", text: trimmed }]);
-    if (turn.action === "ask") {
-      setMsgs((m) => [
-        ...m,
-        { id: nextId(), role: "assistant", text: turn.ask || "" },
-      ]);
-      return;
-    }
-    remember(turn.query);
-    const botId = nextId();
-    setMsgs((m) => [
-      ...m,
+    const keyword = q.browseAll ? "anything" : q.keywords.join(", ");
+    addWatches([
       {
-        id: botId,
-        role: "assistant",
-        pending: true,
-        text: `${turn.preface ? `${turn.preface} ` : ""}Searching ${describeHunt(turn.query, locale)}…`,
-      },
-    ]);
-    await scanWith(turn.query, turn.preface, botId);
-  }
-
-  function onMode(mode: SaleMode) {
-    if (mode === queryRef.current.saleMode) return;
-    const next: HuntQuery = { ...queryRef.current, saleMode: mode };
-    queryRef.current = next;
-    setQuery(next);
-    window.localStorage.setItem("estatesnipe.saleMode", mode);
-    syncSaved();
-    const label =
-      mode === "estate"
-        ? "Estate sales only."
-        : mode === "auction"
-          ? "Auctions only."
-          : "Estate sales and auctions.";
-    if (/^\d{5}$/.test(next.zip) && (next.browseAll || next.keywords.length > 0)) {
-      remember(next);
-      const botId = nextId();
-      setMsgs((m) => [
-        ...m,
-        {
-          id: botId,
-          role: "assistant",
-          pending: true,
-          text: `${label} Searching ${describeHunt(next, locale)}…`,
-        },
-      ]);
-      void scanWith(next, label, botId);
-    }
-  }
-
-  function saveWatch() {
-    const q = queryRef.current;
-    if (!/^\d{5}$/.test(q.zip) || (!q.browseAll && q.keywords.length === 0)) {
-      setSavedNote(
-        locale === "es"
-          ? "Primero dime qué buscar y un código postal."
-          : "Search for something with a zip first."
-      );
-      return;
-    }
-    const keywords = q.browseAll ? ["anything"] : q.keywords;
-    addWatches(
-      keywords.map((keyword) => ({
         keyword,
         zip: q.zip,
         radiusMi: q.radiusMi,
-        excludeAuctions: q.saleMode === "estate",
-      }))
-    );
-    remember(q);
+        excludeAuctions: q.saleMode === "estate" || undefined,
+        notes: parsed.notes.length ? parsed.notes : undefined,
+      },
+    ]);
     setWatches(loadWatches());
-    syncSaved();
-    setSavedNote(
-      locale === "es"
-        ? "Alertas guardadas. Las ves en Watches."
-        : "Saved. They’re on the Watches page."
-    );
+
+    if (profile) {
+      saveProfile({
+        ...profile,
+        zip: q.zip,
+        radiusMi: q.radiusMi,
+        minAlertValueUsd: activeMinAlert,
+      });
+    } else {
+      saveProfile({
+        phone: "",
+        email: "",
+        zip: q.zip,
+        radiusMi: q.radiusMi,
+        consentAlerts: false,
+        consentMarketing: false,
+        minAlertValueUsd: activeMinAlert,
+      });
+    }
+    void pushLocalState();
+
+    try {
+      const outcome = await executeHuntScan(
+        q,
+        async (body, timeoutMs): Promise<HuntPostResult> => {
+          if (scanGen.current !== gen) {
+            return { status: 0, data: null, errorText: "superseded" };
+          }
+          const ctrl = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+          try {
+            const res = await fetch("/api/watch/scan", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              signal: ctrl.signal,
+              body: JSON.stringify(body),
+            });
+            const data = (await res.json()) as ScanResult & {
+              nearby?: ScanMatch["listing"][];
+              honoredPastFreeCap?: boolean;
+              undatedCount?: number;
+              partial?: boolean;
+              httpStatus?: number;
+            };
+            return {
+              status: res.status,
+              data: { ...data, httpStatus: res.status },
+            } as HuntPostResult;
+          } catch (err) {
+            if (scanGen.current !== gen) {
+              return { status: 0, data: null, errorText: "superseded" };
+            }
+            const message =
+              err instanceof Error ? err.message : "the request failed";
+            return { status: 0, data: null, errorText: message };
+          } finally {
+            clearTimeout(timer);
+          }
+        },
+        locale,
+        turn.preface,
+        {
+          flipMode: huntFlip,
+          minAlertValueUsd: activeMinAlert,
+          clientPhone: profilePhone || undefined,
+          notifyPhone: profile?.consentAlerts
+            ? profilePhone || undefined
+            : undefined,
+          notifyEmail:
+            profile?.consentAlerts && profile?.email
+              ? profile.email
+              : undefined,
+        }
+      );
+
+      if (scanGen.current !== gen || outcome.text === "superseded") return;
+
+      const keywordHits = outcome.matches as ScanMatch[];
+      const nearbyCards: ScanMatch[] = outcome.nearby.map((listing) => ({
+        listing,
+        matchedWatch: "",
+        matchedKeywords: [],
+        score: 0,
+        isNew: false,
+      }));
+      const cards = (keywordHits.length ? keywordHits : nearbyCards).slice(0, 8);
+      finish({
+        text: outcome.text,
+        matches: cards,
+        radiusMiles: outcome.radiusMiles,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "the request failed";
+      finish({
+        text:
+          locale === "es"
+            ? `No pude terminar el escaneo. ${message}`
+            : `I couldn’t finish the scan. ${message}`,
+      });
+    } finally {
+      if (scanGen.current === gen) {
+        setBusy(false);
+        inputRef.current?.focus();
+      }
+    }
   }
 
-  const started = msgs.some((m) => m.role === "user");
+  function onSubmit(e?: React.FormEvent) {
+    e?.preventDefault();
+    void runHunt(input);
+  }
+
+  function onExample(prompt: string) {
+    // Fill the composer so the user can edit before sending.
+    setInput(prompt);
+    requestAnimationFrame(() => {
+      const el = inputRef.current;
+      if (!el) return;
+      el.focus();
+      const len = prompt.length;
+      try {
+        el.setSelectionRange(len, len);
+      } catch {
+        /* older WebKit */
+      }
+    });
+  }
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      void runHunt(input);
+    }
+  }
+
+  function onDeleteWatch(id: string) {
+    setWatches(deleteWatch(id));
+    void pushLocalState();
+  }
+
+  function saveKeepTexting(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const phone = String(fd.get("phone") || "");
+    const email = String(fd.get("email") || "");
+    const zip = preferredZip(String(fd.get("zip") || profileZip), null);
+    const radiusMi = Math.min(
+      clampRadiusMiles(String(fd.get("radius") || profileRadius), 25),
+      isFounderPhone(phone) ? PRO_MAX_RADIUS_MI : FREE_RADIUS_MI
+    );
+    const consent = fd.get("consent") === "on";
+    const minRaw = String(fd.get("minAlertValue") || "").trim();
+    let nextMin: number | null = null;
+    if (minRaw && minRaw !== "none") {
+      const n = Number(minRaw);
+      if (Number.isFinite(n) && n > 0) nextMin = Math.round(n);
+    }
+    setMinAlertValueUsd(nextMin);
+    saveProfile({
+      phone,
+      email,
+      zip: zip || profileZip,
+      radiusMi,
+      consentAlerts: consent,
+      consentMarketing: false,
+      minAlertValueUsd: nextMin,
+    });
+    if (zip) setProfileZip(zip);
+    setProfileRadius(radiusMi);
+    setKeepTexting(Boolean(consent && phone));
+    setFounderPro(isFounderPhone(phone));
+    // Ensure current watches sync with updated zip/radius
+    const list = loadWatches().map((w) => ({
+      ...w,
+      zip: zip || w.zip,
+      radiusMi,
+    }));
+    saveWatches(list);
+    setWatches(list);
+    void pushLocalState();
+  }
+
+  const empty = msgs.length === 0;
 
   return (
     <div className="flex min-h-[70vh] flex-col">
-      <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div className="mb-2 flex items-center justify-between gap-2">
         <div>
-          <h1 className="text-xl font-extrabold tracking-tight sm:text-2xl">Hunt</h1>
-          <p className="text-sm text-ss-muted">
-            Say what you want. I’ll scan nearby sales and tell you exactly what I searched.
-          </p>
+          <h1 className="text-xl font-extrabold tracking-[-0.02em] text-ss-text">
+            {messages.chatHomeTitle}
+          </h1>
+          <p className="text-xs text-ss-muted">{messages.chatHomeSub}</p>
         </div>
         <div className="flex items-center gap-2">
           <span className="rounded-full bg-ss-brand-50 px-2.5 py-1 text-[0.72rem] font-bold text-ss-accent ring-1 ring-ss-brand-100">
-            {founder ? "Pro" : "Free"}
+            {founderPro ? "Pro" : messages.proBadge}
           </span>
           <button
             type="button"
-            onClick={() => setAlertsOpen((v) => !v)}
-            className="rounded-2xl border border-ss-line bg-ss-card px-2.5 py-2 text-[0.72rem] font-semibold text-ss-muted"
+            onClick={() => setAlertsOpen((o) => !o)}
+            className="rounded-2xl border border-ss-line bg-ss-card px-2.5 py-2 text-[0.72rem] font-semibold text-ss-muted shadow-sm"
           >
-            Alerts{watches.length ? ` (${watches.length})` : ""}
+            {messages.alertsLink}
+            {watches.length ? ` (${watches.length})` : ""}
           </button>
-        </div>
-        <div
-          className="flex flex-wrap gap-1.5"
-          role="group"
-          aria-label="Sale type"
-        >
-          {(
-            [
-              ["both", "Both"],
-              ["estate", "Estate sales"],
-              ["auction", "Auctions"],
-            ] as const
-          ).map(([mode, label]) => (
-            <button
-              key={mode}
-              type="button"
-              onClick={() => onMode(mode)}
-              className={`rounded-full px-3 py-1.5 text-xs font-bold ${
-                query.saleMode === mode
-                  ? "bg-ss-accent text-white"
-                  : "bg-[#efebe3] text-ss-text"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
         </div>
       </div>
 
-      {flipMode || minAlert != null ? (
+      {(flipModeActive || minAlertValueUsd != null) && (
         <div className="mb-2 flex flex-wrap gap-1.5">
-          {flipMode ? (
+          {flipModeActive ? (
             <span className="rounded-full border border-ss-brand-100 bg-ss-brand-50 px-2.5 py-1 text-[0.7rem] font-bold text-ss-accent">
               Flip mode · portable
             </span>
           ) : null}
-          {minAlert != null ? (
+          {minAlertValueUsd != null ? (
             <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[0.7rem] font-bold text-amber-800">
-              Alert ≥ ${minAlert}
+              Alert ≥ ${minAlertValueUsd}
             </span>
           ) : null}
         </div>
-      ) : null}
+      )}
+
+      <div className="mb-3 grid grid-cols-3 gap-1.5 rounded-full bg-[#efebe3] p-1" role="group" aria-label="Sale type">
+        {(
+          [
+            ["both", "Both"],
+            ["estate", "Estate sales"],
+            ["auction", "Auctions"],
+          ] as const
+        ).map(([mode, label]) => (
+          <button
+            key={mode}
+            type="button"
+            onClick={() => chooseSaleMode(mode)}
+            className={
+              saleMode === mode
+                ? "rounded-full bg-ss-accent px-2 py-2 text-center text-[0.72rem] font-bold text-white shadow-sm"
+                : "rounded-full bg-[#efebe3] px-2 py-2 text-center text-[0.72rem] font-semibold text-ss-text"
+            }
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
       {alertsOpen ? (
         <div className="mb-3 rounded-[18px] border border-ss-line bg-ss-card p-3.5">
           <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-sm font-bold">Alerts</h2>
-            <button type="button" className="text-xs text-ss-muted" onClick={() => setAlertsOpen(false)}>
+            <h2 className="text-sm font-bold">{messages.alertsSheetTitle}</h2>
+            <button
+              type="button"
+              className="text-xs text-ss-muted"
+              onClick={() => setAlertsOpen(false)}
+            >
               Close
             </button>
           </div>
+          <p className="mb-3 text-xs text-ss-muted">{messages.alertsSheetBlurb}</p>
+
           {watches.length === 0 ? (
-            <p className="mb-3 text-sm text-ss-muted">No saved alerts yet. Run a hunt, then save it.</p>
+            <p className="mb-3 text-sm text-ss-muted">{messages.alertsEmpty}</p>
           ) : (
             <ul className="mb-3 space-y-2">
               {watches.map((w) => (
@@ -435,74 +553,43 @@ export function ChatHome() {
                   className="flex items-start justify-between gap-2 rounded-xl border border-ss-line bg-ss-bg px-3 py-2"
                 >
                   <div>
-                    <div className="text-sm font-semibold text-ss-accent">{w.keyword}</div>
+                    <div className="text-sm font-semibold text-ss-accent">
+                      {w.keyword}
+                    </div>
                     <div className="text-[0.7rem] text-ss-muted">
-                      {w.zip} · {w.radiusMi} mi{w.excludeAuctions ? " · skip auctions" : ""}
+                      {w.zip} · {w.radiusMi} mi
+                      {w.excludeAuctions ? " · skip auctions" : ""}
                     </div>
                   </div>
                   <button
                     type="button"
-                    className="text-xs font-semibold text-red-700"
-                    onClick={() => {
-                      const next = deleteWatch(w.id);
-                      setWatches(next);
-                      syncSaved();
-                    }}
+                    onClick={() => onDeleteWatch(w.id)}
+                    className="text-xs font-semibold text-ss-danger"
                   >
-                    Delete
+                    {messages.deleteWatch}
                   </button>
                 </li>
               ))}
             </ul>
           )}
-          <form
-            className="space-y-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const data = new FormData(e.currentTarget);
-              const phone = String(data.get("phone") || "");
-              const email = String(data.get("email") || "");
-              const zip = String(data.get("zip") || query.zip || "");
-              const radius = Number(data.get("radius") || query.radiusMi || 25);
-              const consent = data.get("consent") === "on";
-              const rawMin = String(data.get("minAlertValue") || "none");
-              const nextMin = rawMin !== "none" && Number(rawMin) > 0 ? Math.round(Number(rawMin)) : null;
-              alertRef.current = nextMin;
-              setMinAlert(nextMin);
-              const profile = loadProfile();
-              saveProfile({
-                phone,
-                email,
-                zip: /^\d{5}$/.test(zip) ? zip : profile?.zip || "",
-                radiusMi: radius,
-                consentAlerts: consent,
-                consentMarketing: Boolean(profile?.consentMarketing),
-                minAlertValueUsd: nextMin,
-              });
-              if (/^\d{5}$/.test(zip)) {
-                const next = { ...queryRef.current, zip, radiusMi: radius };
-                queryRef.current = next;
-                setQuery(next);
-              }
-              setFounder(isFounderPhone(phone));
-              const moved = loadWatches().map((w) => ({
-                ...w,
-                zip: /^\d{5}$/.test(zip) ? zip : w.zip,
-                radiusMi: radius,
-              }));
-              saveWatches(moved);
-              setWatches(moved);
-              syncSaved();
-            }}
-          >
+
+          <form onSubmit={saveKeepTexting} className="space-y-2">
+            <p className="text-[0.78rem] font-bold uppercase tracking-wide text-ss-accent2">
+              {messages.keepTextingTitle}
+            </p>
             <div className="grid grid-cols-2 gap-2">
-              <input name="zip" defaultValue={query.zip} placeholder="Zip" aria-label="Zip" />
+              <input
+                name="zip"
+                defaultValue={profileZip}
+                placeholder="Zip"
+                aria-label="Zip"
+              />
               <input
                 name="radius"
                 type="number"
                 min={1}
-                max={founder ? 100 : 25}
-                defaultValue={query.radiusMi}
+                max={founderPro ? PRO_MAX_RADIUS_MI : FREE_RADIUS_MI}
+                defaultValue={profileRadius}
                 placeholder="mi"
                 aria-label="Radius"
               />
@@ -511,8 +598,10 @@ export function ChatHome() {
               Min alert value (USD)
               <select
                 name="minAlertValue"
-                defaultValue={minAlert != null ? String(minAlert) : "none"}
-                className="mt-1"
+                defaultValue={
+                  minAlertValueUsd != null ? String(minAlertValueUsd) : "none"
+                }
+                className="mt-1 w-full rounded-xl border border-ss-line bg-ss-input px-3 py-2 text-sm text-ss-text"
                 aria-label="Minimum alert value"
               >
                 <option value="none">No minimum (alert all)</option>
@@ -524,229 +613,252 @@ export function ChatHome() {
               </select>
             </label>
             <p className="text-[0.68rem] text-ss-muted">
-              Opt-in: only text/email when estimated flip value clears this bar. Or say “only text me if worth $80+” in chat.
+              Opt-in: only text/email when estimated flip value clears this bar.
+              Or say “only text me if worth $80+” in chat.
             </p>
-            <input name="phone" type="tel" defaultValue={loadProfile()?.phone || ""} placeholder="Phone" aria-label="Phone" />
-            <input name="email" type="email" defaultValue={loadProfile()?.email || ""} placeholder="Email" aria-label="Email" />
+            <input
+              name="phone"
+              type="tel"
+              defaultValue={loadProfile()?.phone || ""}
+              placeholder={messages.phoneLabel}
+              aria-label={messages.phoneLabel}
+            />
+            <input
+              name="email"
+              type="email"
+              defaultValue={loadProfile()?.email || ""}
+              placeholder={messages.emailLabel}
+              aria-label={messages.emailLabel}
+            />
             <label className="flex items-start gap-2 text-xs text-ss-muted">
-              <input name="consent" type="checkbox" defaultChecked={Boolean(loadProfile()?.consentAlerts)} className="mt-0.5" />
-              <span>
-                I agree to receive EstateSnipe match-alert SMS. Message frequency varies. Msg & data rates may apply. Reply STOP to opt out, HELP for help.
-              </span>
+              <input
+                name="consent"
+                type="checkbox"
+                defaultChecked={keepTexting}
+                className="mt-0.5"
+              />
+              <span>{messages.keepTextingConsent}</span>
             </label>
-            <button type="submit" className="btn-primary w-full py-3 text-sm font-bold">
-              Save alerts
+            <p className="text-[0.68rem] leading-snug text-ss-muted">
+              {messages.smsLegalFooter}{" "}
+              <a
+                href="https://www.estatesnipe.com/privacy"
+                className="text-ss-accent2 underline"
+              >
+                Privacy
+              </a>{" "}
+              ·{" "}
+              <a
+                href="https://www.estatesnipe.com/terms"
+                className="text-ss-accent2 underline"
+              >
+                Terms
+              </a>
+              .
+            </p>
+            <button
+              type="submit"
+              className="btn-primary w-full py-3 text-sm font-bold"
+            >
+              {messages.keepTextingCta}
             </button>
-            {founder ? (
-              <p className="text-center text-xs text-ss-muted">Founder Pro · no checkout needed</p>
-            ) : (
-              <div className="border-t border-ss-line pt-3 text-center">
-                <CheckoutButton label="Upgrade to Pro" />
-              </div>
-            )}
           </form>
+
+          <div className="mt-3 border-t border-ss-line pt-3 text-center">
+            {founderPro ? (
+              <>
+                <p className="mb-1 text-sm font-bold text-ss-accent">
+                  Pro unlocked for testing
+                </p>
+                <p className="text-xs text-ss-muted">
+                  Founder Pro · no checkout needed
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="mb-2 text-sm text-ss-muted">
+                  {messages.upgradeBlurb}
+                </p>
+                <CheckoutButton label={messages.upgradeCta} />
+              </>
+            )}
+          </div>
         </div>
       ) : null}
 
-      <div className="mb-3 flex flex-wrap gap-2 text-xs">
-        <span className="rounded-full border border-ss-line bg-ss-card px-2.5 py-1 font-semibold">
-          {query.zip || "No zip yet"}
-        </span>
-        <span className="rounded-full border border-ss-line bg-ss-card px-2.5 py-1 font-semibold">
-          {query.radiusMi} mi
-        </span>
-        <span className="rounded-full border border-ss-line bg-ss-card px-2.5 py-1">
-          {query.browseAll
-            ? "all sales"
-            : query.keywords.length
-              ? query.keywords.join(", ")
-              : "no keywords yet"}
-          {query.whenLabel ? ` · ${query.whenLabel}` : ""}
-        </span>
-      </div>
-
-      <div
-        ref={scrollerRef}
-        className="flex max-h-[min(70vh,760px)] min-h-[260px] flex-1 flex-col gap-3 overflow-y-auto rounded-[20px] border border-ss-line bg-ss-card p-3 shadow-[0_8px_28px_rgba(33,29,23,0.06)] sm:p-4"
-        aria-live="polite"
-      >
-        {!started ? (
-          <div className="flex flex-1 flex-col justify-center gap-3 py-4">
+      <div aria-live="polite" className="mb-3 flex min-h-[280px] flex-1 flex-col gap-3 overflow-y-auto rounded-[20px] border border-ss-line bg-ss-card p-3.5 shadow-[0_8px_28px_rgba(33,29,23,0.06)]">
+        {empty ? (
+          <div className="flex flex-1 flex-col justify-center gap-4 py-6">
             <button
               type="button"
-              onClick={() => boxRef.current?.focus()}
-              className="rounded-2xl border border-ss-line bg-ss-bg px-4 py-4 text-left"
+              onClick={() => focusComposer(inputRef.current)}
+              className="mx-auto w-full max-w-[94%] cursor-text rounded-2xl border border-ss-line bg-ss-bg px-4 py-5 text-left transition hover:border-ss-accent"
             >
-              <p className="text-lg font-bold">What are we hunting?</p>
-              <p className="text-sm text-ss-muted">
-                Tap an example or type like you’d text a friend.
+              <p className="mb-1 text-lg font-bold">{messages.chatEmptyHello}</p>
+              <p className="text-sm text-ss-muted">{messages.chatEmptyHint}</p>
+              <p className="mt-2 text-[0.72rem] font-semibold text-ss-accent2">
+                {messages.chatIntroTap}
               </p>
             </button>
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
-              {EXAMPLES.map((example) => (
+            <div className="flex flex-col gap-2">
+              {EXAMPLE_PROMPTS.map((p) => (
                 <button
-                  key={example}
+                  key={p}
                   type="button"
-                  onClick={() => void submitText(example)}
-                  className="rounded-2xl border border-ss-line bg-ss-bg px-3.5 py-3 text-left text-sm leading-snug hover:border-ss-accent"
+                  disabled={busy}
+                  onClick={() => onExample(p)}
+                  className="rounded-2xl border border-ss-line bg-ss-bg px-3.5 py-3 text-left text-[0.88rem] leading-snug text-ss-text transition hover:border-ss-accent disabled:opacity-60"
                 >
-                  {example}
+                  {p}
                 </button>
               ))}
             </div>
           </div>
-        ) : null}
-
-        {msgs.map((m) => (
-          <div key={m.id} className="flex flex-col gap-2">
-            <div
-              className={`max-w-[92%] whitespace-pre-wrap break-words rounded-2xl px-3 py-2 text-[0.95rem] leading-snug md:max-w-[75%] ${
-                m.role === "user"
-                  ? "ml-auto rounded-br-md bg-[#0f766e] text-white"
-                  : "mr-auto rounded-bl-md border border-ss-line bg-ss-bg text-ss-text"
-              }`}
-            >
-              <div className="mb-0.5 text-[0.68rem] font-semibold opacity-70">
-                {m.role === "user" ? messages.chatYou : "EstateSnipe"}
+        ) : (
+          msgs.map((m) => (
+            <div key={m.id} className="flex flex-col gap-2">
+              <div
+                className={`max-w-[94%] rounded-2xl px-3 py-2 text-[0.92rem] leading-snug ${
+                  m.role === "user"
+                    ? "ml-auto rounded-br-md bg-ss-accent text-white"
+                    : "mr-auto rounded-bl-md bg-ss-bg text-ss-text ring-1 ring-ss-line"
+                }`}
+              >
+                <div className="mb-0.5 text-[0.68rem] font-semibold opacity-70">
+                  {m.role === "user" ? messages.chatYou : messages.chatAssistant}
+                </div>
+                <span className="whitespace-pre-line">{m.text}</span>
+                {m.role === "assistant" && m.scanning ? (
+                  <span className="ml-1 inline-block animate-pulse">●</span>
+                ) : null}
               </div>
-              {m.text}
-              {m.pending ? (
-                <span className="ml-1 inline-block h-2 w-2 animate-pulse rounded-full bg-ss-accent" />
+              {m.role === "assistant" && m.matches && m.matches.length > 0 ? (
+                <div className="space-y-3">
+                  {(() => {
+                    const ordered = sortStopsForRoute(m.matches).slice(
+                      0,
+                      MAX_MAPS_STOPS
+                    );
+                    const multi = buildMultiStopMapsUrl(
+                      ordered.map((x) => x.listing)
+                    );
+                    const count = ordered.length;
+                    const label = messages.routeTheseSalesCount
+                      ? messages.routeTheseSalesCount.replace(
+                          "{count}",
+                          String(count)
+                        )
+                      : `Route these ${count} sales`;
+                    return multi ? (
+                      <a
+                        href={multi}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="sticky top-0 z-20 flex w-full items-center justify-center gap-2 rounded-[8px] bg-ss-accent px-3 py-3.5 text-sm font-bold text-white shadow-[0_6px_18px_rgba(15,118,110,0.25)]"
+                      >
+                        <span aria-hidden>↗</span>
+                        {label}
+                      </a>
+                    ) : null;
+                  })()}
+                  <ul className="space-y-3">
+                    {m.matches.map((match) => (
+                      <MatchCard
+                        key={match.listing.id}
+                        listing={match.listing}
+                        matchedKeywords={match.matchedKeywords}
+                        matchSource={match.matchSource}
+                        visionConfidence={match.visionConfidence}
+                        visionReason={match.visionReason}
+                        isNew={match.isNew}
+                        outsideRadius={match.outsideRadius}
+                        radiusMiles={m.radiusMiles ?? profileRadius}
+                        showRoute
+                        flipMode={match.flipMode ?? flipModeActive}
+                        itemGuess={match.itemGuess}
+                        portable={match.portable}
+                        flipNotes={match.flipNotes}
+                        flipValueLabel={match.flipValueLabel}
+                        ebayConfigured={match.ebayConfigured}
+                        ebayCompsNote={match.ebayCompsNote}
+                        sellThroughPct={match.sellThroughPct}
+                        clearsMinAlert={match.clearsMinAlert}
+                        minAlertValueUsd={
+                          match.minAlertValueUsd ?? minAlertValueUsd
+                        }
+                        labels={{
+                          matchFromPhotos: messages.matchFromPhotos,
+                          matchFromBoth: messages.matchFromBoth,
+                          scanNew: messages.scanNew,
+                          viewSale: messages.viewSale,
+                          routeToSale: messages.routeToSale,
+                          noPhoto: messages.noPhoto,
+                        }}
+                      />
+                    ))}
+                  </ul>
+                </div>
               ) : null}
             </div>
-            {m.matches && m.matches.length > 0 ? (
-              <div className="space-y-3">
-                {(() => {
-                  const route = buildMultiStopMapsUrl(
-                    [...m.matches]
-                      .sort((a, b) => (a.listing.distanceMiles ?? 999) - (b.listing.distanceMiles ?? 999))
-                      .slice(0, 9)
-                      .map((hit) => hit.listing)
-                  );
-                  const count = Math.min(m.matches.length, 9);
-                  return route ? (
-                    <a
-                      href={route}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="sticky top-0 z-20 flex w-full items-center justify-center gap-2 rounded-[8px] bg-ss-accent px-3 py-3.5 text-sm font-bold text-white"
-                    >
-                      <span aria-hidden>↗</span>
-                      Route these {count} sales
-                    </a>
-                  ) : null;
-                })()}
-                <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  {m.matches.slice(0, 8).map((hit) => (
-                    <MatchCard
-                      key={hit.listing.id}
-                      listing={hit.listing}
-                      matchedKeywords={hit.matchedKeywords}
-                      matchSource={hit.matchSource}
-                      visionConfidence={hit.visionConfidence}
-                      visionReason={hit.visionReason}
-                      isNew={hit.isNew}
-                      outsideRadius={hit.outsideRadius}
-                      radiusMiles={m.radiusMiles}
-                      showRoute
-                      flipMode={hit.flipMode ?? flipMode}
-                      itemGuess={hit.itemGuess}
-                      portable={hit.portable}
-                      flipNotes={hit.flipNotes}
-                      flipValueLabel={hit.flipValueLabel}
-                      ebayConfigured={hit.ebayConfigured}
-                      ebayCompsNote={hit.ebayCompsNote}
-                      sellThroughPct={hit.sellThroughPct}
-                      clearsMinAlert={hit.clearsMinAlert}
-                      minAlertValueUsd={hit.minAlertValueUsd ?? minAlert}
-                      labels={{
-                        matchFromPhotos: messages.matchFromPhotos,
-                        matchFromBoth: messages.matchFromBoth,
-                        scanNew: messages.scanNew,
-                        viewSale: messages.viewSale,
-                        routeToSale: "Route to sale",
-                        noPhoto: messages.noPhoto,
-                      }}
-                    />
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-            {m.nearby && m.nearby.length > 0 ? (
-              <div>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ss-muted">
-                  Closest sales in range
-                </p>
-                <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  {m.nearby.map((listing) => (
-                    <MatchCard
-                      key={listing.id}
-                      listing={listing}
-                      radiusMiles={m.radiusMiles}
-                      labels={{
-                        matchFromPhotos: messages.matchFromPhotos,
-                        matchFromBoth: messages.matchFromBoth,
-                        viewSale: messages.viewSale,
-                        noPhoto: messages.noPhoto,
-                      }}
-                    />
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-          </div>
-        ))}
+          ))
+        )}
+        <div ref={bottomRef} />
       </div>
 
       <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          void submitText(input);
-        }}
-        className="sticky bottom-0 z-10 mt-3 rounded-[20px] border border-ss-line bg-ss-card p-3 shadow-[0_-8px_28px_rgba(33,29,23,0.08)]"
+        onSubmit={onSubmit}
+        className="relative z-30 sticky bottom-0 rounded-[20px] border border-ss-line bg-ss-card p-3.5 shadow-[0_-8px_28px_rgba(33,29,23,0.1)]"
       >
-        <label className="mb-1.5 block text-[0.72rem] font-bold uppercase tracking-wide text-ss-accent">
-          Hunt
+        <label className="mb-1.5 block text-[0.72rem] font-bold uppercase tracking-wide text-ss-accent2">
+          {messages.chatHomeTitle}
         </label>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-          <textarea
-            ref={boxRef}
-            name="hunt"
-            rows={2}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void submitText(input);
-              }
-            }}
-            placeholder="Ask for sales near you…"
-            aria-label="Ask for sales near you…"
-            className="min-h-[52px] flex-1 resize-none"
-          />
-          <button
-            type="submit"
-            disabled={!input.trim()}
-            className="btn-primary shrink-0 px-5 py-3 text-sm disabled:opacity-50"
-          >
-            {messages.chatSend}
-          </button>
-        </div>
-        <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-[0.72rem] text-ss-muted">
-            Follow-ups keep your zip, miles, and keywords. Shift+Enter for a new line.
+        <textarea
+          ref={inputRef}
+          name="hunt"
+          rows={3}
+          enterKeyHint="send"
+          autoComplete="off"
+          autoCorrect="on"
+          spellCheck
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder={messages.chatHomePlaceholder}
+          className="relative z-30 mb-2 w-full resize-none rounded-xl border-2 border-ss-line bg-ss-input px-3.5 py-3 text-[16px] leading-snug text-ss-text outline-none touch-manipulation select-text focus:border-ss-accent"
+          style={{ WebkitUserSelect: "text", pointerEvents: "auto", position: "relative" }}
+          aria-label={messages.chatHomePlaceholder}
+          readOnly={false}
+          disabled={false}
+        />
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[0.68rem] text-ss-muted">
+            {profileZip
+              ? `${profileZip} · ${profileRadius} mi`
+              : messages.chatZipHint}
           </p>
           <button
-            type="button"
-            onClick={saveWatch}
-            className="text-left text-xs font-semibold text-ss-accent"
+            type="submit"
+            disabled={busy || !input.trim()}
+            className="btn-primary shrink-0 px-5 py-2.5 text-sm font-bold disabled:opacity-50"
           >
-            Save this hunt as alerts
+            {busy ? messages.scanScanning : messages.chatSend}
           </button>
         </div>
-        {savedNote ? <p className="mt-1 text-xs text-ss-muted">{savedNote}</p> : null}
       </form>
+
+      <p className="mt-3 text-center text-xs">
+        <Link href="/pricing" className="font-semibold text-ss-accent2">
+          Free vs Pro
+        </Link>
+        {" · "}
+        <button
+          type="button"
+          onClick={() => setAlertsOpen(true)}
+          className="font-semibold text-ss-accent2"
+        >
+          {messages.keepTextingTitle}
+        </button>
+      </p>
     </div>
   );
 }

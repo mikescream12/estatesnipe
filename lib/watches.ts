@@ -1,3 +1,5 @@
+import { normalizePhone } from "./phone";
+
 export type Watch = {
   id: string;
   keyword: string;
@@ -18,6 +20,7 @@ export type Profile = {
   radiusMi: number;
   consentAlerts: boolean;
   consentMarketing: boolean;
+  /** Opt-in min flip value for SMS/email. Null/undefined = no min (alert all). */
   minAlertValueUsd?: number | null;
 };
 
@@ -80,5 +83,17 @@ export function loadProfile(): Profile | null {
 
 export function saveProfile(profile: Profile): void {
   if (typeof window === "undefined") return;
-  localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+  const phone = normalizePhone(profile.phone) || profile.phone.trim();
+  let minAlertValueUsd = profile.minAlertValueUsd;
+  if (minAlertValueUsd != null) {
+    const n = Number(minAlertValueUsd);
+    minAlertValueUsd =
+      Number.isFinite(n) && n > 0 ? Math.round(n) : null;
+  } else {
+    minAlertValueUsd = null;
+  }
+  localStorage.setItem(
+    PROFILE_KEY,
+    JSON.stringify({ ...profile, phone, minAlertValueUsd })
+  );
 }

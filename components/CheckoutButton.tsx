@@ -45,8 +45,8 @@ export function CheckoutButton({
     <form action="/api/stripe" method="POST" onSubmit={start}>
       <button
         type="submit"
-        disabled={pending || Boolean(disabledReason)}
-        className="w-full rounded-[14px] bg-ss-accent py-3.5 text-base font-bold text-[#1a1206] disabled:opacity-60"
+        disabled={pending}
+        className="btn-primary w-full py-3.5 text-base font-bold disabled:opacity-60"
       >
         {pending ? "Opening Checkout…" : label}
       </button>

@@ -52,13 +52,13 @@ export async function deleteBlob(pathname: string): Promise<void> {
 
 export async function listBlobPathnames(prefix: string): Promise<string[]> {
   if (!blobConfigured()) return [];
-  const names: string[] = [];
+  const pathnames: string[] = [];
   let cursor: string | undefined;
-  for (;;) {
-    const page = await list({ prefix, cursor, limit: 1000 });
-    for (const blob of page.blobs) names.push(blob.pathname);
-    if (!page.hasMore || !page.cursor) break;
-    cursor = page.cursor;
+  for (let page = 0; page < 20; page++) {
+    const result = await list({ prefix, cursor, limit: 200 });
+    for (const blob of result.blobs) pathnames.push(blob.pathname);
+    if (!result.hasMore || !result.cursor) break;
+    cursor = result.cursor;
   }
-  return names;
+  return pathnames;
 }

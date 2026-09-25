@@ -1,9 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useLocale } from "@/lib/LocaleContext";
 import { loadProfile, saveProfile } from "@/lib/watches";
+import { isFounderPhone } from "@/lib/founder";
+import { FREE_RADIUS_MI, PRO_MAX_RADIUS_MI } from "@/lib/plans";
+import { pushLocalState } from "@/lib/watchSync";
 
 export function ContactConsentForm() {
   const { messages } = useLocale();
@@ -14,7 +16,6 @@ export function ContactConsentForm() {
   const [consentAlerts, setConsentAlerts] = useState(false);
   const [consentMarketing, setConsentMarketing] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [consentError, setConsentError] = useState(false);
 
   useEffect(() => {
     const existing = loadProfile();
@@ -29,20 +30,20 @@ export function ContactConsentForm() {
 
   function onSave(e: React.FormEvent) {
     e.preventDefault();
-    const phoneTrimmed = phone.trim();
-    if (phoneTrimmed && !consentAlerts) {
-      setConsentError(true);
-      return;
-    }
-    setConsentError(false);
+    const maxR = isFounderPhone(phone) ? PRO_MAX_RADIUS_MI : FREE_RADIUS_MI;
+    const radiusMi = Math.min(
+      Math.max(1, parseInt(radius, 10) || FREE_RADIUS_MI),
+      maxR
+    );
     saveProfile({
-      phone: phoneTrimmed,
+      phone,
       email,
       zip,
-      radiusMi: Math.max(1, parseInt(radius, 10) || 25),
+      radiusMi,
       consentAlerts,
       consentMarketing,
     });
+    void pushLocalState();
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }
@@ -57,22 +58,21 @@ export function ContactConsentForm() {
         <div>
           <label className="field-label">{messages.radiusLabel}</label>
           <input
-            type="text"
+            type="number"
             value={radius}
             onChange={(e) => setRadius(e.target.value)}
             placeholder="25"
+            min={1}
+            max={isFounderPhone(phone) ? PRO_MAX_RADIUS_MI : FREE_RADIUS_MI}
           />
         </div>
       </div>
       <label className="field-label">{messages.phoneLabel}</label>
       <input
         type="tel"
-        placeholder="+1 214 555 0199"
+        placeholder="7143459641"
         value={phone}
-        onChange={(e) => {
-          setPhone(e.target.value);
-          if (consentError) setConsentError(false);
-        }}
+        onChange={(e) => setPhone(e.target.value)}
       />
       <label className="field-label">{messages.emailLabel}</label>
       <input
@@ -86,10 +86,7 @@ export function ContactConsentForm() {
           type="checkbox"
           className="mt-1"
           checked={consentAlerts}
-          onChange={(e) => {
-            setConsentAlerts(e.target.checked);
-            if (e.target.checked) setConsentError(false);
-          }}
+          onChange={(e) => setConsentAlerts(e.target.checked)}
         />
         <span>{messages.consentAlerts}</span>
       </label>
@@ -102,26 +99,32 @@ export function ContactConsentForm() {
         />
         <span>{messages.consentMarketing}</span>
       </label>
-      <p className="text-[0.75rem] leading-snug text-ss-muted">
-        <Link href="/terms" className="text-ss-accent2 underline">
-          {messages.termsLink}
-        </Link>
-        {" · "}
-        <Link href="/privacy" className="text-ss-accent2 underline">
-          {messages.privacyLink}
-        </Link>
-      </p>
-      {consentError ? (
-        <p className="text-center text-xs text-ss-danger">
-          {messages.consentPhoneRequired}
-        </p>
-      ) : null}
       <button
         type="submit"
         className="w-full rounded-[14px] border border-ss-line py-3 font-bold text-ss-text"
       >
         {messages.saveContact}
       </button>
+      <p className="text-center text-[0.72rem] leading-snug text-ss-muted">
+        By checking the SMS box above (unchecked by default) you opt in to
+        recurring estate-sale match alerts from EstateSnipe. Message frequency
+        varies — up to several alerts per day when matches are found. Msg &amp;
+        data rates may apply. Reply STOP to cancel, HELP for help.{" "}
+        <a
+          href="https://www.estatesnipe.com/privacy"
+          className="text-ss-accent2 underline"
+        >
+          Privacy Policy
+        </a>{" "}
+        ·{" "}
+        <a
+          href="https://www.estatesnipe.com/terms"
+          className="text-ss-accent2 underline"
+        >
+          Terms
+        </a>
+        .
+      </p>
       {saved ? (
         <p className="text-center text-xs text-ss-accent2">{messages.contactSaved}</p>
       ) : null}

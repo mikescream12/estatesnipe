@@ -60,6 +60,11 @@ export async function runVisionPass(args: {
   watches: WatchInput[];
   textHitIds: Set<string>;
   outsideRadiusById?: Map<string, boolean>;
+  /**
+   * Absolute Date.now() deadline. When remaining time is low, stop early and
+   * return whatever photo hits we already have (text matches stay upstream).
+   */
+  deadlineAt?: number;
 }): Promise<{ hits: MatchHit[]; stats: VisionScanStats }> {
   const cfg = getVisionConfig();
   const baseStats: VisionScanStats = {
@@ -70,6 +75,14 @@ export async function runVisionPass(args: {
     evaluated: 0,
     matched: 0,
   };
+
+  const remainingMs = () =>
+    args.deadlineAt == null
+      ? Number.POSITIVE_INFINITY
+      : args.deadlineAt - Date.now();
+
+  // Need headroom for at least one vision call + return path (~4s).
+  const MIN_VISION_MS = 4_000;
 
   if (!baseStats.enabled) {
     return {
@@ -90,11 +103,32 @@ export async function runVisionPass(args: {
     };
   }
 
+  if (remainingMs() < MIN_VISION_MS) {
+    return {
+      hits: [],
+      stats: {
+        ...baseStats,
+        attempted: true,
+        skippedReason: "vision_budget",
+      },
+    };
+  }
+
+  // Shrink candidate count when the wall clock is tight (Hobby ~60s).
+  let maxListings = cfg.maxListings;
+  const rem = remainingMs();
+  if (Number.isFinite(rem)) {
+    if (rem < 12_000) maxListings = Math.min(maxListings, 4);
+    else if (rem < 20_000) maxListings = Math.min(maxListings, 8);
+    else if (rem < 30_000) maxListings = Math.min(maxListings, 12);
+    else if (rem < 40_000) maxListings = Math.min(maxListings, 18);
+  }
+
   const textMisses = args.listings
     .filter((l) => !args.textHitIds.has(l.id))
     .filter((l) => (l.photos?.length || 0) > 0 || Boolean(l.url))
     .sort((a, b) => listingDistance(a) - listingDistance(b))
-    .slice(0, cfg.maxListings);
+    .slice(0, maxListings);
 
   baseStats.candidates = textMisses.length;
   if (textMisses.length === 0) {
@@ -104,9 +138,14 @@ export async function runVisionPass(args: {
     };
   }
 
-  // Enrich photos for sparse listings (best-effort, sequential rate-limit via http)
+  // Enrich photos for sparse listings (best-effort). Stop if budget runs out.
   const enriched: SaleListing[] = [];
+  let budgetHit = false;
   for (const listing of textMisses) {
+    if (remainingMs() < MIN_VISION_MS) {
+      budgetHit = true;
+      break;
+    }
     enriched.push(await enrichListingPhotos(listing));
   }
 
@@ -117,16 +156,10 @@ export async function runVisionPass(args: {
       stats: {
         ...baseStats,
         attempted: true,
-        skippedReason: "no_photos_after_enrich",
+        skippedReason: budgetHit ? "vision_budget" : "no_photos_after_enrich",
       },
     };
   }
-
-  type Job = {
-    listing: SaleListing;
-    watch: WatchInput;
-    keywords: string[];
-  };
 
   // One primary watch intent per listing: try watches in order until a match,
   // but cap total vision calls via jobs list length ≤ maxListings * watches
@@ -141,8 +174,19 @@ export async function runVisionPass(args: {
   const isFatalProviderError = (err?: string) =>
     !!err && /429|insufficient|no credits|billing|quota|401|invalid.api.key/i.test(err);
 
+  // Cap per-call timeout so one hung OpenAI call cannot burn the whole budget.
+  const perCallTimeout = Number.isFinite(remainingMs())
+    ? Math.min(cfg.timeoutMs, Math.max(5_000, Math.floor(remainingMs() - 1_500)))
+    : cfg.timeoutMs;
+
   await mapPool(withPhotos, cfg.concurrency, async (listing) => {
     if (circuitOpen) return;
+    if (remainingMs() < MIN_VISION_MS) {
+      circuitOpen = true;
+      circuitReason = "vision_budget";
+      budgetHit = true;
+      return;
+    }
 
     let best: {
       watch: WatchInput;
@@ -152,6 +196,12 @@ export async function runVisionPass(args: {
 
     for (const watch of args.watches) {
       if (circuitOpen) break;
+      if (remainingMs() < MIN_VISION_MS) {
+        circuitOpen = true;
+        circuitReason = "vision_budget";
+        budgetHit = true;
+        break;
+      }
       const { keywords, excludeAuctions } = watchTerms(watch.text);
       const skipAuctions = watch.excludeAuctions ?? excludeAuctions;
       if (skipAuctions && listing.isAuction) continue;
@@ -165,6 +215,7 @@ export async function runVisionPass(args: {
         listingTitle: listing.title,
         listingId: listing.id,
         minConfidence: cfg.minConfidence,
+        timeoutMs: perCallTimeout,
       });
 
       if (isFatalProviderError(vision.error)) {
@@ -200,9 +251,23 @@ export async function runVisionPass(args: {
         visionReason: best.vision.reason,
         visionLabels: best.vision.labels,
         photoUrlsUsed: best.vision.photoUrlsUsed,
+        itemGuess: best.vision.itemGuess,
+        portable: best.vision.portable,
+        flipNotes: best.vision.flipNotes,
+        valueEstLowUsd: best.vision.valueEstLowUsd,
+        valueEstHighUsd: best.vision.valueEstHighUsd,
       });
     }
   });
+
+  let skippedReason: string | undefined;
+  if (circuitOpen && circuitReason === "vision_budget") {
+    skippedReason = "vision_budget";
+  } else if (circuitOpen) {
+    skippedReason = `provider_circuit: ${circuitReason?.slice(0, 120) || "error"}`;
+  } else if (budgetHit) {
+    skippedReason = "vision_budget";
+  }
 
   return {
     hits,
@@ -212,9 +277,7 @@ export async function runVisionPass(args: {
       evaluated,
       matched,
       candidates: withPhotos.length,
-      skippedReason: circuitOpen
-        ? `provider_circuit: ${circuitReason?.slice(0, 120) || "error"}`
-        : undefined,
+      skippedReason,
     },
   };
 }
@@ -247,6 +310,11 @@ export function mergeTextAndPhotoHits(
       visionReason: h.visionReason ?? prev.visionReason,
       visionLabels: h.visionLabels ?? prev.visionLabels,
       photoUrlsUsed: h.photoUrlsUsed ?? prev.photoUrlsUsed,
+      itemGuess: h.itemGuess ?? prev.itemGuess,
+      portable: h.portable ?? prev.portable,
+      flipNotes: h.flipNotes ?? prev.flipNotes,
+      valueEstLowUsd: h.valueEstLowUsd ?? prev.valueEstLowUsd,
+      valueEstHighUsd: h.valueEstHighUsd ?? prev.valueEstHighUsd,
       matchedKeywords:
         prev.matchedKeywords.length > 0
           ? prev.matchedKeywords

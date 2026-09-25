@@ -42,7 +42,31 @@ export function isFounderPhone(phone: string | undefined | null): boolean {
   return founderPhoneAllowlist().includes(normalized);
 }
 
-/** Max radius the UI should offer for this profile. */
+/** Max radius the UI should offer for this profile phone. */
 export function maxRadiusForPhone(phone: string | undefined | null): number {
   return isFounderPhone(phone) ? PRO_MAX_RADIUS_MI : FREE_RADIUS_MI;
+}
+
+/**
+ * Pick the first usable phone from request body / headers for founder unlock.
+ * Does not require SMS consent — unlock is allowlist-only.
+ */
+export function pickClientPhone(input: {
+  notifyPhone?: unknown;
+  clientPhone?: unknown;
+  founderPhone?: unknown;
+  headerPhone?: string | null;
+}): string {
+  for (const raw of [
+    input.clientPhone,
+    input.founderPhone,
+    input.notifyPhone,
+    input.headerPhone,
+  ]) {
+    const n = normalizePhone(
+      typeof raw === "string" ? raw : raw == null ? "" : String(raw)
+    );
+    if (n) return n;
+  }
+  return "";
 }

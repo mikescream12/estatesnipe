@@ -267,6 +267,15 @@ export function extractItemKeywords(text: string): string[] {
     seen.add(phrase);
     out.push(phrase);
   }
+  // The live parser drops "furniture" as filler. A hunt that only says
+  // furniture still needs that word so titles can match.
+  if (
+    out.length === 0 &&
+    /\bfurniture\b/i.test(text) &&
+    !/\bno\s+(?:massive\s+)?furniture\b/i.test(text)
+  ) {
+    out.push("furniture");
+  }
   return out.slice(0, 8);
 }
 

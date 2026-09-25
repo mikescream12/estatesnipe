@@ -35,7 +35,7 @@ import type {
 import type { SalePhoto } from "../sources/types";
 
 /** Bump when SYSTEM_PROMPT changes so cached verdicts cannot outlive the prompt. */
-const VISION_CACHE_SALT = "open-query-v2";
+const VISION_CACHE_SALT = "open-query-flip-v3";
 
 function cacheIntent(intent: string): string {
   return `${VISION_CACHE_SALT}\n${intent}`;
@@ -71,12 +71,23 @@ Strict calibration (examples of the bar, NOT a list of allowed queries):
 - A hardcover, paperback, or CD is NOT vinyl and NOT a first edition. A poster of a record is not an LP.
 - Random kitchen clutter is not cast iron and not tools.
 
+Also fill flip research fields on every response (cheap extras — keep reason short):
+- itemGuess: brief what the primary item is (e.g. "sealed Pokemon ETB", "oak dresser").
+- portable: true if a reseller could carry/ship it alone; false for sofas, sectionals, armoires, large dressers, pianos, appliances, mattresses, and other massive furniture. Small chairs/side tables can be true if one person can move them.
+- flipNotes: one short line for a flipper (condition/brand cue or "too big to flip").
+- valueEstLowUsd / valueEstHighUsd: rough secondary-market USD band if you can estimate from what you see; otherwise omit or null. These are estimates only — never invent a sell-through percentage.
+
 Output a single JSON object only:
 {
   "matched": boolean,
   "confidence": number,
   "labels": string[],
-  "reason": string
+  "reason": string,
+  "itemGuess": string,
+  "portable": boolean,
+  "flipNotes": string,
+  "valueEstLowUsd": number | null,
+  "valueEstHighUsd": number | null
 }`;
 
 function buildUserText(req: VisionMatchRequest): string {
@@ -118,6 +129,11 @@ function applyThreshold(
     confidence,
     labels: payload.labels || [],
     reason: payload.reason || (matched ? "Visual match" : "Below confidence threshold"),
+    itemGuess: payload.itemGuess,
+    portable: payload.portable,
+    flipNotes: payload.flipNotes,
+    valueEstLowUsd: payload.valueEstLowUsd,
+    valueEstHighUsd: payload.valueEstHighUsd,
     photoUrlsUsed,
     provider: meta.provider,
     model: meta.model,
@@ -257,6 +273,7 @@ export async function matchListingPhotos(args: {
   listingTitle?: string;
   listingId?: string;
   minConfidence?: number;
+  timeoutMs?: number;
 }): Promise<VisionMatchResult> {
   return matchPhotos(
     {
@@ -267,7 +284,10 @@ export async function matchListingPhotos(args: {
       listingTitle: args.listingTitle,
       listingId: args.listingId,
     },
-    { minConfidence: args.minConfidence ?? visionMinConfidence() }
+    {
+      minConfidence: args.minConfidence ?? visionMinConfidence(),
+      timeoutMs: args.timeoutMs,
+    }
   );
 }
 

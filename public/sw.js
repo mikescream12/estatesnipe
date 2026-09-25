@@ -1,5 +1,5 @@
 /* EstateSnipe offline shell. HTML is network-first so a new deploy is what people see. */
-const CACHE = "estatesnipe-shell-v2";
+const CACHE = "estatesnipe-shell-v3";
 const PRECACHE = ["/manifest.json", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (event) => {

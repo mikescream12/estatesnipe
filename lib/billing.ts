@@ -10,6 +10,7 @@ import {
   PRO_PRICE_SOURCE,
   PRO_PRODUCT_NAME,
 } from "./plans";
+import { isFounderPhone } from "./founder";
 
 export const BILLING_COOKIE = "es_billing";
 /** 90 days. Entitlement is re-checked against Stripe, not trusted from the cookie alone. */
@@ -29,32 +30,8 @@ export function webhookSecret(): string {
   return (process.env.STRIPE_WEBHOOK_SECRET || "").trim();
 }
 
-/** Reject empty, redacted placeholders, and non-Stripe shapes so checkout fails closed. */
-function isUsableSecret(value: string, kind: "stripe" | "webhook"): boolean {
-  const v = value.trim();
-  if (!v) return false;
-  if (
-    /^\[SENSITIVE\]$/i.test(v) ||
-    /^SENSITIVE$/i.test(v) ||
-    /^changeme$/i.test(v) ||
-    /^your[_-]?/i.test(v) ||
-    /^<.*>$/.test(v) ||
-    /^xxx+$/i.test(v)
-  ) {
-    return false;
-  }
-  if (kind === "stripe") {
-    return /^sk_(live|test)_[A-Za-z0-9]+$/.test(v) && v.length >= 20;
-  }
-  return /^whsec_[A-Za-z0-9]+$/.test(v) && v.length >= 16;
-}
-
 export function stripeSecretConfigured(): boolean {
-  return isUsableSecret(stripeSecret(), "stripe");
-}
-
-export function webhookSecretConfigured(): boolean {
-  return isUsableSecret(webhookSecret(), "webhook");
+  return stripeSecret().length > 0;
 }
 
 export function isPaywallEnforced(): boolean {
@@ -65,13 +42,13 @@ export function isPaywallEnforced(): boolean {
 export function missingStripeSecrets(): string[] {
   const missing: string[] = [];
   if (!stripeSecretConfigured()) missing.push("STRIPE_SECRET_KEY");
-  if (!webhookSecretConfigured()) missing.push("STRIPE_WEBHOOK_SECRET");
+  if (!webhookSecret()) missing.push("STRIPE_WEBHOOK_SECRET");
   return missing;
 }
 
 export function getStripe(): Stripe | null {
   const key = stripeSecret();
-  if (!stripeSecretConfigured()) return null;
+  if (!key) return null;
   if (!stripeClient || stripeClientKey !== key) {
     stripeClient = new Stripe(key);
     stripeClientKey = key;
@@ -96,7 +73,7 @@ export function billingPublicStatus() {
   return {
     configured,
     checkoutReady: configured,
-    webhookReady: configured && webhookSecretConfigured(),
+    webhookReady: configured && Boolean(webhookSecret()),
     /**
      * This process does not create Stripe Dashboard endpoints.
      * Callers that have a key can still ask stripeWebhookRegistered().
@@ -260,8 +237,13 @@ export function customerIdFromCookie(cookieHeader: string | null): string | null
 }
 
 export async function resolveScanBilling(
-  cookieHeader: string | null
+  cookieHeader: string | null,
+  opts?: { phone?: string | null }
 ): Promise<{ enforced: boolean; pro: boolean }> {
+  if (isFounderPhone(opts?.phone)) {
+    // Founder / test allowlist: force Pro (radius + tier) without Stripe.
+    return { enforced: true, pro: true };
+  }
   if (!isPaywallEnforced()) return { enforced: false, pro: false };
   const customerId = customerIdFromCookie(cookieHeader);
   if (!customerId) return { enforced: true, pro: false };
@@ -284,7 +266,7 @@ export function constructWebhookEvent(
     throw err;
   }
   const secret = webhookSecret();
-  if (!webhookSecretConfigured()) {
+  if (!secret) {
     const err = new Error("STRIPE_WEBHOOK_SECRET missing");
     (err as Error & { status?: number }).status = 503;
     throw err;

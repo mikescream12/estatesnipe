@@ -1,13 +1,13 @@
 {
   "name": "EstateSnipe",
   "short_name": "EstateSnipe",
-  "description": "Estate-sale sniping alerts — talk to set unlimited watches.",
+  "description": "Estate-sale sniping alerts \u2014 talk to set unlimited watches.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#0f1115",
-  "theme_color": "#0f1115",
+  "background_color": "#FAF9F6",
+  "theme_color": "#0F766E",
   "icons": [
     {
       "src": "/icon-192.png",
