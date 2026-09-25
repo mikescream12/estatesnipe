@@ -88,9 +88,8 @@ export function huntScanBody(
     clientPhone: extra?.clientPhone || undefined,
     notifyPhone: extra?.notifyPhone || undefined,
     notifyEmail: extra?.notifyEmail || undefined,
-    // Title scan first. Photo matching can burn the whole 60s platform limit
-    // and leave the chat stuck on a spinner.
-    skipVision: true,
+    // Same vision pass as the live scan, cut off by this deadline so a slow
+    // photo match returns the text hits instead of leaving the spinner up.
     deadlineMs,
   };
 }
