@@ -30,6 +30,10 @@ import { getVisionConfig } from "./vision/config";
 import { isPaywallEnforced } from "./billing";
 import { PRO_PRICE_LABEL, resolveScanRadius, type ScanBillingInput } from "./plans";
 import { classifyListingDate } from "./saleWindow";
+import { annotateListingDeal } from "./flipValue";
+import { ebayConfigured } from "./ebayComps";
+import { sendMatchEmail } from "./email";
+import { isFounderPhone } from "./founder";
 
 export type ScanRequest = {
   zip: string;
@@ -39,6 +43,10 @@ export type ScanRequest = {
   onlyNew?: boolean;
   /** Optional E.164 phone for SMS when matches found and TWILIO_* set */
   notifyPhone?: string;
+  notifyEmail?: string;
+  clientPhone?: string;
+  flipMode?: boolean;
+  minAlertValueUsd?: number | null;
   excludeAuctions?: boolean;
   /** Set by the request route. Omitted scans use the server paywall default and are not Pro. */
   billing?: ScanBillingInput;
@@ -86,6 +94,16 @@ export type ScanResponse = {
     visionConfidence?: number;
     visionReason?: string;
     visionLabels?: string[];
+    flipMode?: boolean;
+    portable?: boolean;
+    itemGuess?: string;
+    flipNotes?: string;
+    flipValueLabel?: string;
+    ebayConfigured?: boolean;
+    ebayCompsNote?: string;
+    sellThroughPct?: number;
+    clearsMinAlert?: boolean;
+    minAlertValueUsd?: number | null;
   }>;
   sources: SourceStatus[];
   sms?: { attempted: boolean; sent: boolean; sid?: string; error?: string };
@@ -214,11 +232,12 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
     .replace(/\D/g, "");
   // 0 / NaN / missing → 25. Huge values cap at 100 so Texas is never "in range".
   const requestedRadius = clampRadiusMiles(req.radiusMiles, 25);
+  const founder = isFounderPhone(req.clientPhone);
   const access = resolveScanRadius(
     requestedRadius,
-    req.billing,
+    founder ? { enforced: req.billing?.enforced ?? isPaywallEnforced(), pro: true } : req.billing,
     isPaywallEnforced(),
-    req.honorRadius === true
+    req.honorRadius === true || founder
   );
   const radiusMiles = access.radiusMiles;
   const plan = {
@@ -392,6 +411,14 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
   const newIds = await filterNewIds(hitIds);
   const newIdSet = new Set(newIds);
 
+  const dealOpts = {
+    flipMode: Boolean(req.flipMode),
+    minAlertValueUsd:
+      typeof req.minAlertValueUsd === "number" && req.minAlertValueUsd > 0
+        ? Math.round(req.minAlertValueUsd)
+        : null,
+    ebayConfigured: ebayConfigured(),
+  };
   const matches = allHits.map((h) => ({
     listing: h.listing,
     matchedWatch: h.matchedWatch,
@@ -404,6 +431,7 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
     visionConfidence: h.visionConfidence,
     visionReason: h.visionReason,
     visionLabels: h.visionLabels,
+    ...annotateListingDeal(h.listing.title || "", dealOpts),
   }));
 
   const toReport =
@@ -433,6 +461,15 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
     smsHits.length ? smsHits : [],
     remaining()
   );
+
+  if (req.notifyEmail && smsHits.length) {
+    const lines = smsHits.slice(0, 8).map((h) => `${h.listing.title}\n${h.listing.url}`);
+    void sendMatchEmail({
+      to: req.notifyEmail,
+      subject: `EstateSnipe: ${smsHits.length} match${smsHits.length === 1 ? "" : "es"} near ${zip}`,
+      text: lines.join("\n\n"),
+    }).catch(() => undefined);
+  }
 
   void recorded;
 

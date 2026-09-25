@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { buildSingleStopMapsUrl } from "@/lib/routePlan";
 
 export type MatchCardListing = {
   id: string;
@@ -11,6 +12,8 @@ export type MatchCardListing = {
   state?: string | null;
   zip?: string | null;
   distanceMiles?: number | null;
+  latitude?: number | null;
+  longitude?: number | null;
   photos?: Array<{ url: string; thumbnailUrl?: string }>;
 };
 
@@ -23,11 +26,23 @@ export type MatchCardProps = {
   isNew?: boolean;
   outsideRadius?: boolean;
   radiusMiles?: number | string;
+  showRoute?: boolean;
+  flipMode?: boolean;
+  itemGuess?: string;
+  portable?: boolean;
+  flipNotes?: string;
+  flipValueLabel?: string;
+  ebayConfigured?: boolean;
+  ebayCompsNote?: string;
+  sellThroughPct?: number;
+  clearsMinAlert?: boolean;
+  minAlertValueUsd?: number | null;
   labels: {
     matchFromPhotos: string;
     matchFromBoth: string;
     scanNew?: string;
     viewSale?: string;
+    routeToSale?: string;
     noPhoto?: string;
   };
 };
@@ -75,8 +90,19 @@ export function MatchCard({
   isNew,
   outsideRadius,
   radiusMiles,
+  showRoute,
+  flipMode,
+  itemGuess,
+  flipNotes,
+  flipValueLabel,
+  ebayConfigured,
+  ebayCompsNote,
+  sellThroughPct,
+  clearsMinAlert,
+  minAlertValueUsd,
   labels,
 }: MatchCardProps) {
+  const routeHref = showRoute ? buildSingleStopMapsUrl(listing) : null;
   const urls = uniquePhotos(listing.photos, 4);
   const hero = urls[0] || null;
   const thumbs = urls.slice(1, 4);
@@ -246,6 +272,38 @@ export function MatchCard({
             </p>
           ) : null}
 
+          {flipMode || itemGuess || flipValueLabel ? (
+            <div className="space-y-1 pt-0.5">
+              {itemGuess ? (
+                <p className="text-[0.78rem] font-semibold text-ss-text">{itemGuess}</p>
+              ) : null}
+              {flipNotes ? (
+                <p className="text-[0.72rem] leading-snug text-ss-muted">{flipNotes}</p>
+              ) : null}
+              {flipValueLabel ? (
+                <p className="text-[0.75rem] font-semibold text-ss-accent">
+                  {flipValueLabel}
+                  {clearsMinAlert === true && minAlertValueUsd != null
+                    ? ` · Clears your $${minAlertValueUsd} min`
+                    : clearsMinAlert === false && minAlertValueUsd != null
+                      ? ` · Below your $${minAlertValueUsd} min`
+                      : ""}
+                </p>
+              ) : minAlertValueUsd != null ? (
+                <p className="text-[0.72rem] text-ss-muted">
+                  Your min alert: ${minAlertValueUsd} (no est. yet)
+                </p>
+              ) : null}
+              {flipMode ? (
+                <p className="text-[0.7rem] text-ss-muted">
+                  {ebayConfigured && sellThroughPct != null && Number.isFinite(sellThroughPct)
+                    ? `Sell-through ~${Math.round(sellThroughPct)}%`
+                    : ebayCompsNote || "Comps: connect eBay to score sell-through"}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
           {outsideRadius ? (
             <p className="text-[0.72rem] text-red-700">
               {`Slightly outside your ${radiusMiles ?? "?"} mi radius`}
@@ -260,6 +318,19 @@ export function MatchCard({
           </div>
         </div>
       </a>
+      {routeHref ? (
+        <div className="border-t border-ss-line bg-ss-brand-50 px-3.5 py-3">
+          <a
+            href={routeHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex w-full items-center justify-center gap-2 rounded-[8px] border border-ss-accent/30 bg-ss-accent px-3 py-2.5 text-[0.88rem] font-bold text-white"
+          >
+            <span aria-hidden>↗</span>
+            {labels.routeToSale || "Route to sale"}
+          </a>
+        </div>
+      ) : null}
     </li>
   );
 }

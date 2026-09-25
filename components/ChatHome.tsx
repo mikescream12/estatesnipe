@@ -16,7 +16,12 @@ import {
   type HuntMatch,
   type HuntPostResult,
 } from "@/lib/huntScan";
-import { addWatches, loadProfile, saveProfile } from "@/lib/watches";
+import { addWatches, deleteWatch, loadProfile, loadWatches, saveProfile, saveWatches, type Watch } from "@/lib/watches";
+import { isFounderPhone } from "@/lib/founder";
+import { parseFlipMention, parseMinAlertUsd } from "@/lib/flipValue";
+import { buildMultiStopMapsUrl } from "@/lib/routePlan";
+import { normalizePhone } from "@/lib/phone";
+import { CheckoutButton } from "@/components/CheckoutButton";
 
 type Msg = {
   id: string;
@@ -97,6 +102,13 @@ export function ChatHome() {
   const [input, setInput] = useState("");
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [savedNote, setSavedNote] = useState("");
+  const [flipMode, setFlipMode] = useState(false);
+  const [minAlert, setMinAlert] = useState<number | null>(null);
+  const [alertsOpen, setAlertsOpen] = useState(false);
+  const [watches, setWatches] = useState<Watch[]>([]);
+  const [founder, setFounder] = useState(false);
+  const flipRef = useRef(false);
+  const alertRef = useRef<number | null>(null);
   const queryRef = useRef(query);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -117,6 +129,17 @@ export function ChatHome() {
         })
       );
     }
+    if (typeof profile?.minAlertValueUsd === "number" && profile.minAlertValueUsd > 0) {
+      alertRef.current = profile.minAlertValueUsd;
+      setMinAlert(profile.minAlertValueUsd);
+    }
+    setFounder(isFounderPhone(profile?.phone));
+    setWatches(loadWatches());
+    const savedMode = window.localStorage.getItem("estatesnipe.saleMode");
+    if (savedMode === "estate" || savedMode === "auction" || savedMode === "both") {
+      setQuery((q) => ({ ...q, saleMode: savedMode }));
+    }
+    void syncSaved();
   }, []);
 
   useEffect(() => {
@@ -139,7 +162,39 @@ export function ChatHome() {
       radiusMi: next.radiusMi,
       consentAlerts: Boolean(profile?.consentAlerts),
       consentMarketing: Boolean(profile?.consentMarketing),
+      minAlertValueUsd: alertRef.current,
     });
+  }
+
+  function syncSaved() {
+    const idKey = "estatesnipe.clientId.v1";
+    let clientId = window.localStorage.getItem(idKey) || "";
+    if (!/^[A-Za-z0-9_-]{8,80}$/.test(clientId)) {
+      clientId = crypto.randomUUID();
+      window.localStorage.setItem(idKey, clientId);
+    }
+    const profile = loadProfile();
+    const mode = window.localStorage.getItem("estatesnipe.saleMode");
+    void fetch("/api/watch/saved", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        clientId,
+        phone: normalizePhone(profile?.phone || "") || profile?.phone || "",
+        email: profile?.email || "",
+        consentAlerts: Boolean(profile?.consentAlerts),
+        consentMarketing: Boolean(profile?.consentMarketing),
+        minAlertValueUsd: alertRef.current,
+        saleMode: mode === "estate" || mode === "auction" || mode === "both" ? mode : "both",
+        watches: loadWatches().map((w) => ({
+          id: w.id,
+          keyword: w.keyword,
+          zip: w.zip,
+          radiusMi: w.radiusMi,
+          excludeAuctions: Boolean(w.excludeAuctions),
+        })),
+      }),
+    }).catch(() => undefined);
   }
 
   async function scanWith(next: HuntQuery, preface?: string, botId?: string) {
@@ -158,11 +213,20 @@ export function ChatHome() {
     abortRef.current?.abort("superseded");
     const ctrl = new AbortController();
     abortRef.current = ctrl;
+    const profile = loadProfile();
+    const phone = normalizePhone(profile?.phone || "") || profile?.phone || "";
     const outcome = await executeHuntScan(
       next,
       (body, timeoutMs) => postScan(body, timeoutMs, ctrl.signal),
       locale,
-      preface
+      preface,
+      {
+        flipMode: flipRef.current,
+        minAlertValueUsd: alertRef.current,
+        clientPhone: phone || undefined,
+        notifyPhone: profile?.consentAlerts && phone ? phone : undefined,
+        notifyEmail: profile?.consentAlerts && profile.email ? profile.email : undefined,
+      }
     );
     const superseded = outcome.text.includes("superseded") && ctrl.signal.aborted;
     setMsgs((m) =>
@@ -188,6 +252,19 @@ export function ChatHome() {
   async function submitText(text: string) {
     const trimmed = text.trim();
     if (!trimmed) return;
+    const flipMention = parseFlipMention(trimmed);
+    if (flipMention === "on") {
+      flipRef.current = true;
+      setFlipMode(true);
+    } else if (flipMention === "off") {
+      flipRef.current = false;
+      setFlipMode(false);
+    }
+    const alert = parseMinAlertUsd(trimmed);
+    if (alert != null) {
+      alertRef.current = alert;
+      setMinAlert(alert);
+    }
     setInput("");
     setSavedNote("");
     const turn = applyHuntTurn(queryRef.current, trimmed, locale, new Date());
@@ -221,6 +298,8 @@ export function ChatHome() {
     const next: HuntQuery = { ...queryRef.current, saleMode: mode };
     queryRef.current = next;
     setQuery(next);
+    window.localStorage.setItem("estatesnipe.saleMode", mode);
+    syncSaved();
     const label =
       mode === "estate"
         ? "Estate sales only."
@@ -263,6 +342,8 @@ export function ChatHome() {
       }))
     );
     remember(q);
+    setWatches(loadWatches());
+    syncSaved();
     setSavedNote(
       locale === "es"
         ? "Alertas guardadas. Las ves en Watches."
@@ -280,6 +361,18 @@ export function ChatHome() {
           <p className="text-sm text-ss-muted">
             Say what you want. I’ll scan nearby sales and tell you exactly what I searched.
           </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="rounded-full bg-ss-brand-50 px-2.5 py-1 text-[0.72rem] font-bold text-ss-accent ring-1 ring-ss-brand-100">
+            {founder ? "Pro" : "Free"}
+          </span>
+          <button
+            type="button"
+            onClick={() => setAlertsOpen((v) => !v)}
+            className="rounded-2xl border border-ss-line bg-ss-card px-2.5 py-2 text-[0.72rem] font-semibold text-ss-muted"
+          >
+            Alerts{watches.length ? ` (${watches.length})` : ""}
+          </button>
         </div>
         <div
           className="flex flex-wrap gap-1.5"
@@ -308,6 +401,152 @@ export function ChatHome() {
           ))}
         </div>
       </div>
+
+      {flipMode || minAlert != null ? (
+        <div className="mb-2 flex flex-wrap gap-1.5">
+          {flipMode ? (
+            <span className="rounded-full border border-ss-brand-100 bg-ss-brand-50 px-2.5 py-1 text-[0.7rem] font-bold text-ss-accent">
+              Flip mode · portable
+            </span>
+          ) : null}
+          {minAlert != null ? (
+            <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[0.7rem] font-bold text-amber-800">
+              Alert ≥ ${minAlert}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
+      {alertsOpen ? (
+        <div className="mb-3 rounded-[18px] border border-ss-line bg-ss-card p-3.5">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="text-sm font-bold">Alerts</h2>
+            <button type="button" className="text-xs text-ss-muted" onClick={() => setAlertsOpen(false)}>
+              Close
+            </button>
+          </div>
+          {watches.length === 0 ? (
+            <p className="mb-3 text-sm text-ss-muted">No saved alerts yet. Run a hunt, then save it.</p>
+          ) : (
+            <ul className="mb-3 space-y-2">
+              {watches.map((w) => (
+                <li
+                  key={w.id}
+                  className="flex items-start justify-between gap-2 rounded-xl border border-ss-line bg-ss-bg px-3 py-2"
+                >
+                  <div>
+                    <div className="text-sm font-semibold text-ss-accent">{w.keyword}</div>
+                    <div className="text-[0.7rem] text-ss-muted">
+                      {w.zip} · {w.radiusMi} mi{w.excludeAuctions ? " · skip auctions" : ""}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="text-xs font-semibold text-red-700"
+                    onClick={() => {
+                      const next = deleteWatch(w.id);
+                      setWatches(next);
+                      syncSaved();
+                    }}
+                  >
+                    Delete
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <form
+            className="space-y-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const data = new FormData(e.currentTarget);
+              const phone = String(data.get("phone") || "");
+              const email = String(data.get("email") || "");
+              const zip = String(data.get("zip") || query.zip || "");
+              const radius = Number(data.get("radius") || query.radiusMi || 25);
+              const consent = data.get("consent") === "on";
+              const rawMin = String(data.get("minAlertValue") || "none");
+              const nextMin = rawMin !== "none" && Number(rawMin) > 0 ? Math.round(Number(rawMin)) : null;
+              alertRef.current = nextMin;
+              setMinAlert(nextMin);
+              const profile = loadProfile();
+              saveProfile({
+                phone,
+                email,
+                zip: /^\d{5}$/.test(zip) ? zip : profile?.zip || "",
+                radiusMi: radius,
+                consentAlerts: consent,
+                consentMarketing: Boolean(profile?.consentMarketing),
+                minAlertValueUsd: nextMin,
+              });
+              if (/^\d{5}$/.test(zip)) {
+                const next = { ...queryRef.current, zip, radiusMi: radius };
+                queryRef.current = next;
+                setQuery(next);
+              }
+              setFounder(isFounderPhone(phone));
+              const moved = loadWatches().map((w) => ({
+                ...w,
+                zip: /^\d{5}$/.test(zip) ? zip : w.zip,
+                radiusMi: radius,
+              }));
+              saveWatches(moved);
+              setWatches(moved);
+              syncSaved();
+            }}
+          >
+            <div className="grid grid-cols-2 gap-2">
+              <input name="zip" defaultValue={query.zip} placeholder="Zip" aria-label="Zip" />
+              <input
+                name="radius"
+                type="number"
+                min={1}
+                max={founder ? 100 : 25}
+                defaultValue={query.radiusMi}
+                placeholder="mi"
+                aria-label="Radius"
+              />
+            </div>
+            <label className="block text-[0.72rem] font-semibold text-ss-muted">
+              Min alert value (USD)
+              <select
+                name="minAlertValue"
+                defaultValue={minAlert != null ? String(minAlert) : "none"}
+                className="mt-1"
+                aria-label="Minimum alert value"
+              >
+                <option value="none">No minimum (alert all)</option>
+                <option value="25">$25+</option>
+                <option value="50">$50+</option>
+                <option value="80">$80+</option>
+                <option value="100">$100+</option>
+                <option value="200">$200+</option>
+              </select>
+            </label>
+            <p className="text-[0.68rem] text-ss-muted">
+              Opt-in: only text/email when estimated flip value clears this bar. Or say “only text me if worth $80+” in chat.
+            </p>
+            <input name="phone" type="tel" defaultValue={loadProfile()?.phone || ""} placeholder="Phone" aria-label="Phone" />
+            <input name="email" type="email" defaultValue={loadProfile()?.email || ""} placeholder="Email" aria-label="Email" />
+            <label className="flex items-start gap-2 text-xs text-ss-muted">
+              <input name="consent" type="checkbox" defaultChecked={Boolean(loadProfile()?.consentAlerts)} className="mt-0.5" />
+              <span>
+                I agree to receive EstateSnipe match-alert SMS. Message frequency varies. Msg & data rates may apply. Reply STOP to opt out, HELP for help.
+              </span>
+            </label>
+            <button type="submit" className="btn-primary w-full py-3 text-sm font-bold">
+              Save alerts
+            </button>
+            {founder ? (
+              <p className="text-center text-xs text-ss-muted">Founder Pro · no checkout needed</p>
+            ) : (
+              <div className="border-t border-ss-line pt-3 text-center">
+                <CheckoutButton label="Upgrade to Pro" />
+              </div>
+            )}
+          </form>
+        </div>
+      ) : null}
 
       <div className="mb-3 flex flex-wrap gap-2 text-xs">
         <span className="rounded-full border border-ss-line bg-ss-card px-2.5 py-1 font-semibold">
@@ -376,28 +615,62 @@ export function ChatHome() {
               ) : null}
             </div>
             {m.matches && m.matches.length > 0 ? (
-              <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                {m.matches.slice(0, 8).map((hit) => (
-                  <MatchCard
-                    key={hit.listing.id}
-                    listing={hit.listing}
-                    matchedKeywords={hit.matchedKeywords}
-                    matchSource={hit.matchSource}
-                    visionConfidence={hit.visionConfidence}
-                    visionReason={hit.visionReason}
-                    isNew={hit.isNew}
-                    outsideRadius={hit.outsideRadius}
-                    radiusMiles={m.radiusMiles}
-                    labels={{
-                      matchFromPhotos: messages.matchFromPhotos,
-                      matchFromBoth: messages.matchFromBoth,
-                      scanNew: messages.scanNew,
-                      viewSale: messages.viewSale,
-                      noPhoto: messages.noPhoto,
-                    }}
-                  />
-                ))}
-              </ul>
+              <div className="space-y-3">
+                {(() => {
+                  const route = buildMultiStopMapsUrl(
+                    [...m.matches]
+                      .sort((a, b) => (a.listing.distanceMiles ?? 999) - (b.listing.distanceMiles ?? 999))
+                      .slice(0, 9)
+                      .map((hit) => hit.listing)
+                  );
+                  const count = Math.min(m.matches.length, 9);
+                  return route ? (
+                    <a
+                      href={route}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="sticky top-0 z-20 flex w-full items-center justify-center gap-2 rounded-[8px] bg-ss-accent px-3 py-3.5 text-sm font-bold text-white"
+                    >
+                      <span aria-hidden>↗</span>
+                      Route these {count} sales
+                    </a>
+                  ) : null;
+                })()}
+                <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  {m.matches.slice(0, 8).map((hit) => (
+                    <MatchCard
+                      key={hit.listing.id}
+                      listing={hit.listing}
+                      matchedKeywords={hit.matchedKeywords}
+                      matchSource={hit.matchSource}
+                      visionConfidence={hit.visionConfidence}
+                      visionReason={hit.visionReason}
+                      isNew={hit.isNew}
+                      outsideRadius={hit.outsideRadius}
+                      radiusMiles={m.radiusMiles}
+                      showRoute
+                      flipMode={hit.flipMode ?? flipMode}
+                      itemGuess={hit.itemGuess}
+                      portable={hit.portable}
+                      flipNotes={hit.flipNotes}
+                      flipValueLabel={hit.flipValueLabel}
+                      ebayConfigured={hit.ebayConfigured}
+                      ebayCompsNote={hit.ebayCompsNote}
+                      sellThroughPct={hit.sellThroughPct}
+                      clearsMinAlert={hit.clearsMinAlert}
+                      minAlertValueUsd={hit.minAlertValueUsd ?? minAlert}
+                      labels={{
+                        matchFromPhotos: messages.matchFromPhotos,
+                        matchFromBoth: messages.matchFromBoth,
+                        scanNew: messages.scanNew,
+                        viewSale: messages.viewSale,
+                        routeToSale: "Route to sale",
+                        noPhoto: messages.noPhoto,
+                      }}
+                    />
+                  ))}
+                </ul>
+              </div>
             ) : null}
             {m.nearby && m.nearby.length > 0 ? (
               <div>

@@ -18,6 +18,7 @@ export type Profile = {
   radiusMi: number;
   consentAlerts: boolean;
   consentMarketing: boolean;
+  minAlertValueUsd?: number | null;
 };
 
 export function loadWatches(): Watch[] {

@@ -28,6 +28,16 @@ export type HuntMatch = {
   visionReason?: string;
   isNew?: boolean;
   outsideRadius?: boolean;
+  flipMode?: boolean;
+  portable?: boolean;
+  itemGuess?: string;
+  flipNotes?: string;
+  flipValueLabel?: string;
+  ebayConfigured?: boolean;
+  ebayCompsNote?: string;
+  sellThroughPct?: number;
+  clearsMinAlert?: boolean;
+  minAlertValueUsd?: number | null;
 };
 
 export type HuntScanPayload = HuntScanSnapshot & {
@@ -49,7 +59,19 @@ export type HuntScanOutcome = {
   zip: string;
 };
 
-export function huntScanBody(query: HuntQuery, deadlineMs: number): Record<string, unknown> {
+export type HuntScanExtra = {
+  flipMode?: boolean;
+  minAlertValueUsd?: number | null;
+  clientPhone?: string;
+  notifyPhone?: string;
+  notifyEmail?: string;
+};
+
+export function huntScanBody(
+  query: HuntQuery,
+  deadlineMs: number,
+  extra?: HuntScanExtra
+): Record<string, unknown> {
   return {
     zip: query.zip,
     radiusMiles: query.radiusMi,
@@ -61,6 +83,11 @@ export function huntScanBody(query: HuntQuery, deadlineMs: number): Record<strin
     saleMode: query.saleMode,
     dateFrom: query.dateFrom,
     dateTo: query.dateTo,
+    flipMode: Boolean(extra?.flipMode),
+    minAlertValueUsd: extra?.minAlertValueUsd ?? null,
+    clientPhone: extra?.clientPhone || undefined,
+    notifyPhone: extra?.notifyPhone || undefined,
+    notifyEmail: extra?.notifyEmail || undefined,
     // Title scan first. Photo matching can burn the whole 60s platform limit
     // and leave the chat stuck on a spinner.
     skipVision: true,
@@ -105,9 +132,10 @@ export async function executeHuntScan(
   query: HuntQuery,
   post: (body: Record<string, unknown>, timeoutMs: number) => Promise<HuntPostResult>,
   locale: "en" | "es" = "en",
-  preface?: string
+  preface?: string,
+  extra?: HuntScanExtra
 ): Promise<HuntScanOutcome> {
-  const first = await post(huntScanBody(query, 35_000), 42_000);
+  const first = await post(huntScanBody(query, 35_000, extra), 42_000);
   let used = first;
   let retryNote: string | undefined;
   if (first.errorText === "superseded") {
@@ -120,7 +148,7 @@ export async function executeHuntScan(
     };
   }
   if (failed(first)) {
-    const second = await post(huntScanBody(query, 22_000), 28_000);
+    const second = await post(huntScanBody(query, 22_000, extra), 28_000);
     const firstWhy = reason(first, locale);
     if (!failed(second)) {
       used = second;
