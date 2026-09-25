@@ -79,6 +79,15 @@ export async function GET(request: Request) {
     .filter(Boolean);
   const notifyPhone =
     stripSurroundingQuotes(process.env.CRON_NOTIFY_PHONE || "") || undefined;
+  const notifyEmail =
+    stripSurroundingQuotes(process.env.CRON_NOTIFY_EMAIL || "") || undefined;
+  const minAlertRaw = Number(
+    stripSurroundingQuotes(process.env.CRON_MIN_ALERT_VALUE_USD || "")
+  );
+  const minAlertValueUsd =
+    Number.isFinite(minAlertRaw) && minAlertRaw > 0
+      ? Math.round(minAlertRaw)
+      : null;
   // Default: skip vision on cron. Opt in with CRON_ENABLE_VISION=1.
   const skipVision = !/^(1|true|yes|on)$/i.test(
     (process.env.CRON_ENABLE_VISION || "").trim()
@@ -90,6 +99,8 @@ export async function GET(request: Request) {
     watchTexts,
     onlyNew: true,
     notifyPhone,
+    notifyEmail,
+    minAlertValueUsd,
     skipVision,
     deadlineMs: 50_000,
   });

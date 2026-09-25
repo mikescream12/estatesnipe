@@ -27,6 +27,15 @@ export type VisionMatchResult = {
   labels: string[];
   /** One-line human reason suitable for UI badge subtitle */
   reason: string;
+  /** Brief guess of what the item is (flip research) */
+  itemGuess?: string;
+  /** True when item looks portable / shippable — false for sofas/armoires/large furniture */
+  portable?: boolean | null;
+  /** One-line flip note */
+  flipNotes?: string;
+  /** Rough USD value band from vision (estimate only) */
+  valueEstLowUsd?: number | null;
+  valueEstHighUsd?: number | null;
   /** Photo URLs actually sent to the model */
   photoUrlsUsed: string[];
   /** Provider that produced the result */
@@ -52,4 +61,9 @@ export type VisionStructuredPayload = {
   confidence: number;
   labels: string[];
   reason: string;
+  itemGuess?: string;
+  portable?: boolean | null;
+  flipNotes?: string;
+  valueEstLowUsd?: number | null;
+  valueEstHighUsd?: number | null;
 };

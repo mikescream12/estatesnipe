@@ -111,7 +111,38 @@ function normalizePayload(raw: unknown): VisionStructuredPayload {
 
   const matched = Boolean(o.matched) && confidence > 0;
 
-  return { matched, confidence, labels, reason };
+  const itemGuess =
+    typeof o.itemGuess === "string" && o.itemGuess.trim()
+      ? o.itemGuess.trim().slice(0, 80)
+      : undefined;
+  let portable: boolean | null | undefined;
+  if (typeof o.portable === "boolean") portable = o.portable;
+  else if (o.portable === null) portable = null;
+  const flipNotes =
+    typeof o.flipNotes === "string" && o.flipNotes.trim()
+      ? o.flipNotes.trim().slice(0, 160)
+      : undefined;
+
+  const parseUsd = (v: unknown): number | null | undefined => {
+    if (v == null) return undefined;
+    const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+    if (!Number.isFinite(n) || n < 0 || n > 100_000) return null;
+    return Math.round(n);
+  };
+  const valueEstLowUsd = parseUsd(o.valueEstLowUsd);
+  const valueEstHighUsd = parseUsd(o.valueEstHighUsd);
+
+  return {
+    matched,
+    confidence,
+    labels,
+    reason,
+    itemGuess,
+    portable,
+    flipNotes,
+    valueEstLowUsd,
+    valueEstHighUsd,
+  };
 }
 
 function sleep(ms: number): Promise<void> {
@@ -143,7 +174,7 @@ async function chatCompletions(
   const body = {
     model: provider.model,
     temperature: 0.1,
-    max_tokens: 400,
+    max_tokens: 500,
     response_format: { type: "json_object" },
     messages: [
       { role: "system", content: args.system },

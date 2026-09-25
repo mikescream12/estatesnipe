@@ -7,6 +7,7 @@
 
 import { promises as fs } from "fs";
 import path from "path";
+import { blobConfigured, readBlobJson, writeBlobJson } from "./blobJson";
 import type { MatchHit } from "./match";
 
 export type StoredMatch = {
@@ -30,6 +31,7 @@ type StoreShape = {
 
 const FILE =
   process.env.ESTATESNIPE_STORE_FILE || "/tmp/estatesnipe-store.json";
+const SEEN_BLOB = "meta/seen-store.json";
 const MAX_SEEN = 5000;
 const MAX_MATCHES = 500;
 
@@ -40,16 +42,29 @@ let memory: StoreShape = {
 };
 let loaded = false;
 
+function shapeFrom(parsed: Partial<StoreShape> | null | undefined): StoreShape {
+  return {
+    seenIds: Array.isArray(parsed?.seenIds) ? parsed!.seenIds : [],
+    matches: Array.isArray(parsed?.matches) ? parsed!.matches : [],
+    lastScanAt: parsed?.lastScanAt ?? null,
+  };
+}
+
 async function load(): Promise<StoreShape> {
   if (loaded) return memory;
+  if (blobConfigured()) {
+    try {
+      const parsed = await readBlobJson<StoreShape>(SEEN_BLOB);
+      if (parsed) memory = shapeFrom(parsed);
+    } catch {
+      // keep the in-process snapshot if blob is briefly unreachable
+    }
+    loaded = true;
+    return memory;
+  }
   try {
     const raw = await fs.readFile(/*turbopackIgnore: true*/ FILE, "utf8");
-    const parsed = JSON.parse(raw) as StoreShape;
-    memory = {
-      seenIds: Array.isArray(parsed.seenIds) ? parsed.seenIds : [],
-      matches: Array.isArray(parsed.matches) ? parsed.matches : [],
-      lastScanAt: parsed.lastScanAt ?? null,
-    };
+    memory = shapeFrom(JSON.parse(raw) as StoreShape);
   } catch {
     // fresh store
   }
@@ -57,7 +72,22 @@ async function load(): Promise<StoreShape> {
   return memory;
 }
 
+/** Force the next read to come from Blob. Used by cron before a scan. */
+export async function hydrateStoreFromDurable(): Promise<void> {
+  if (!blobConfigured()) return;
+  loaded = false;
+  await load();
+}
+
 async function persist(): Promise<void> {
+  if (blobConfigured()) {
+    try {
+      await writeBlobJson(SEEN_BLOB, memory);
+    } catch {
+      // this instance still has memory; the next cold start reloads blob
+    }
+    return;
+  }
   try {
     await fs.mkdir(/*turbopackIgnore: true*/ path.dirname(FILE), { recursive: true });
     await fs.writeFile(/*turbopackIgnore: true*/ FILE, JSON.stringify(memory), "utf8");

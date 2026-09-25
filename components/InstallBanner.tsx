@@ -62,7 +62,7 @@ export function InstallBanner() {
   }
 
   return (
-    <div className="mb-3 rounded-[18px] border border-ss-accent/40 bg-[rgba(232,165,75,0.1)] p-3">
+    <div className="mb-4 rounded-[18px] border border-ss-brand-100 bg-ss-brand-50 p-3.5">
       <div className="flex items-start justify-between gap-2">
         <div>
           <div className="text-sm font-bold text-ss-accent">
@@ -79,18 +79,18 @@ export function InstallBanner() {
           ✕
         </button>
       </div>
-      <div className="mt-2 flex gap-2">
+      <div className="mt-2.5 flex gap-2">
         <button
           type="button"
           onClick={install}
-          className="flex-1 rounded-xl bg-gradient-to-br from-ss-accent to-[#f0c27b] py-2.5 text-sm font-bold text-[#1a1208]"
+          className="btn-primary flex-1 py-2.5 text-sm font-bold"
         >
           {messages.installCta}
         </button>
         <button
           type="button"
           onClick={() => setShowHelp((s) => !s)}
-          className="rounded-xl border border-ss-line px-3 py-2.5 text-xs font-semibold text-ss-text"
+          className="rounded-[8px] border border-ss-line bg-ss-card px-3 py-2.5 text-xs font-semibold text-ss-text"
         >
           {messages.installHow}
         </button>

@@ -66,7 +66,7 @@ export default async function PricingPage({
         </ul>
       </div>
 
-      <div className="mb-4 rounded-[18px] border border-ss-accent bg-ss-card p-4">
+      <div className="mb-4 rounded-[18px] border-2 border-ss-accent bg-ss-brand-50 p-4 shadow-[0_8px_28px_rgba(15,118,110,0.12)]">
         <h2 className="text-base font-bold">Pro</h2>
         <p className="mt-1 text-sm text-ss-accent">{PRO_PRICE_LABEL}</p>
         <ul className="mt-3 list-disc space-y-1 pl-4 text-sm text-ss-text">

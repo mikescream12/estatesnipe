@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { buildSingleStopMapsUrl } from "@/lib/routePlan";
 
 export type MatchCardListing = {
   id: string;
@@ -10,6 +11,8 @@ export type MatchCardListing = {
   city?: string | null;
   state?: string | null;
   zip?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
   distanceMiles?: number | null;
   photos?: Array<{ url: string; thumbnailUrl?: string }>;
 };
@@ -23,11 +26,25 @@ export type MatchCardProps = {
   isNew?: boolean;
   outsideRadius?: boolean;
   radiusMiles?: number | string;
+  /** Always show single-sale directions (useful free action — not Pro-gated). */
+  showRoute?: boolean;
+  /** Flip research */
+  flipMode?: boolean;
+  itemGuess?: string;
+  portable?: boolean | null;
+  flipNotes?: string;
+  flipValueLabel?: string;
+  ebayConfigured?: boolean;
+  ebayCompsNote?: string;
+  sellThroughPct?: number | null;
+  clearsMinAlert?: boolean | null;
+  minAlertValueUsd?: number | null;
   labels: {
     matchFromPhotos: string;
     matchFromBoth: string;
     scanNew?: string;
     viewSale?: string;
+    routeToSale?: string;
     noPhoto?: string;
   };
 };
@@ -66,6 +83,11 @@ function SourceLabel({ sourceId }: { sourceId: string }) {
   return <span>{pretty}</span>;
 }
 
+/** @deprecated prefer buildSingleStopMapsUrl from lib/routePlan — kept for callers */
+export function mapsDirectionsUrl(listing: MatchCardListing): string | null {
+  return buildSingleStopMapsUrl(listing);
+}
+
 export function MatchCard({
   listing,
   matchedKeywords = [],
@@ -75,6 +97,17 @@ export function MatchCard({
   isNew,
   outsideRadius,
   radiusMiles,
+  showRoute = true,
+  flipMode = false,
+  itemGuess,
+  portable,
+  flipNotes,
+  flipValueLabel,
+  ebayConfigured,
+  ebayCompsNote,
+  sellThroughPct,
+  clearsMinAlert,
+  minAlertValueUsd,
   labels,
 }: MatchCardProps) {
   const urls = uniquePhotos(listing.photos, 4);
@@ -85,16 +118,17 @@ export function MatchCard({
 
   const showHero = hero && !heroBroken;
   const isPhotoMatch = matchSource === "photo" || matchSource === "both";
+  const routeUrl = showRoute ? buildSingleStopMapsUrl(listing) : null;
 
   return (
-    <li className="overflow-hidden rounded-2xl border border-ss-line bg-[#0b0d11] shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
+    <li className="overflow-hidden rounded-[14px] border border-ss-line bg-ss-card shadow-[0_8px_28px_rgba(33,29,23,0.08)]">
       <a
         href={listing.url}
         target="_blank"
         rel="noopener noreferrer"
         className="block text-inherit no-underline"
       >
-        <div className="relative aspect-[16/10] w-full overflow-hidden bg-gradient-to-br from-[#1a2030] via-[#12151b] to-[#0b0d11]">
+        <div className="relative aspect-[16/10] w-full overflow-hidden bg-gradient-to-br from-ss-brand-50 via-[#e8f5f2] to-[#dce8e4]">
           {showHero ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -107,7 +141,7 @@ export function MatchCard({
             />
           ) : (
             <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-4 text-center">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-ss-line bg-[rgba(255,255,255,0.04)] text-ss-muted">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-ss-line bg-white/70 text-ss-muted">
                 <svg
                   width="22"
                   height="22"
@@ -140,7 +174,9 @@ export function MatchCard({
             </div>
           )}
 
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/75 via-black/35 to-transparent" />
+          {showHero ? (
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/75 via-black/35 to-transparent" />
+          ) : null}
 
           <div className="absolute left-2.5 top-2.5 flex max-w-[90%] flex-wrap gap-1.5">
             {outsideRadius ? (
@@ -152,7 +188,7 @@ export function MatchCard({
               </span>
             ) : null}
             {isPhotoMatch ? (
-              <span className="rounded-full border border-ss-accent2/40 bg-[rgba(13,18,24,0.82)] px-2 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide text-ss-accent2 shadow-sm backdrop-blur-sm">
+              <span className="rounded-full border border-ss-accent2/50 bg-white/90 px-2 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide text-ss-accent2 shadow-sm backdrop-blur-sm">
                 {matchSource === "both"
                   ? labels.matchFromBoth
                   : labels.matchFromPhotos}
@@ -162,30 +198,46 @@ export function MatchCard({
               </span>
             ) : null}
             {isNew && labels.scanNew ? (
-              <span className="rounded-full border border-ss-accent/40 bg-[rgba(13,18,24,0.82)] px-2 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide text-ss-accent shadow-sm backdrop-blur-sm">
+              <span className="rounded-full border border-ss-accent/40 bg-white/90 px-2 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide text-ss-accent shadow-sm backdrop-blur-sm">
                 {labels.scanNew}
               </span>
             ) : null}
+            {flipMode && portable === true ? (
+              <span className="rounded-full border border-emerald-400/40 bg-[rgba(6,40,28,0.88)] px-2 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide text-emerald-300 shadow-sm backdrop-blur-sm">
+                Portable
+              </span>
+            ) : null}
+            {flipMode && portable === false ? (
+              <span className="rounded-full border border-amber-400/40 bg-[rgba(50,30,8,0.88)] px-2 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide text-amber-200 shadow-sm backdrop-blur-sm">
+                Too big to flip
+              </span>
+            ) : null}
             {!outsideRadius && listing.distanceMiles != null ? (
-              <span className="rounded-full border border-white/15 bg-[rgba(13,18,24,0.75)] px-2 py-0.5 text-[0.65rem] font-semibold tracking-wide text-white/90 shadow-sm backdrop-blur-sm">
+              <span className="rounded-full border border-ss-line bg-white/90 px-2 py-0.5 text-[0.65rem] font-semibold tracking-wide text-ss-text shadow-sm backdrop-blur-sm">
                 {listing.distanceMiles} mi
               </span>
             ) : null}
           </div>
 
           <div className="absolute bottom-2.5 left-3 right-3">
-            <div className="line-clamp-2 text-[0.95rem] font-semibold leading-snug text-white drop-shadow">
+            <div
+              className={`line-clamp-2 text-[0.95rem] font-semibold leading-snug ${
+                showHero
+                  ? "text-white drop-shadow"
+                  : "text-ss-text"
+              }`}
+            >
               {listing.title}
             </div>
           </div>
         </div>
 
         {thumbs.length > 0 ? (
-          <div className="grid grid-cols-3 gap-1.5 bg-[#0b0d11] px-2.5 pt-2.5">
+          <div className="grid grid-cols-3 gap-1.5 bg-ss-card px-2.5 pt-2.5">
             {thumbs.map((src, i) => (
               <div
                 key={`${listing.id}-t-${i}`}
-                className="relative aspect-[4/3] overflow-hidden rounded-lg border border-ss-line bg-[#12151b]"
+                className="relative aspect-[4/3] overflow-hidden rounded-lg border border-ss-line bg-ss-bg"
               >
                 {!brokenThumbs[i] ? (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -200,7 +252,7 @@ export function MatchCard({
                     }
                   />
                 ) : (
-                  <div className="h-full w-full bg-[#151922]" />
+                  <div className="h-full w-full bg-ss-bg" />
                 )}
               </div>
             ))}
@@ -240,6 +292,45 @@ export function MatchCard({
             </p>
           ) : null}
 
+          {flipMode || itemGuess || flipValueLabel ? (
+            <div className="space-y-1 pt-0.5">
+              {itemGuess ? (
+                <p className="text-[0.78rem] font-semibold text-ss-text">
+                  {itemGuess}
+                </p>
+              ) : null}
+              {flipNotes ? (
+                <p className="text-[0.72rem] leading-snug text-ss-muted">
+                  {flipNotes}
+                </p>
+              ) : null}
+              {flipValueLabel ? (
+                <p className="text-[0.75rem] font-semibold text-ss-accent2">
+                  {flipValueLabel}
+                  {clearsMinAlert === true && minAlertValueUsd != null
+                    ? ` · Clears your $${minAlertValueUsd} min`
+                    : clearsMinAlert === false && minAlertValueUsd != null
+                      ? ` · Below your $${minAlertValueUsd} min`
+                      : ""}
+                </p>
+              ) : minAlertValueUsd != null ? (
+                <p className="text-[0.72rem] text-ss-muted">
+                  Your min alert: ${minAlertValueUsd} (no est. yet)
+                </p>
+              ) : null}
+              {flipMode ? (
+                <p className="text-[0.7rem] text-ss-muted">
+                  {ebayConfigured &&
+                  sellThroughPct != null &&
+                  Number.isFinite(sellThroughPct)
+                    ? `Sell-through ~${Math.round(sellThroughPct)}%`
+                    : ebayCompsNote ||
+                      "Comps: connect eBay to score sell-through"}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
           {outsideRadius ? (
             <p className="text-[0.72rem] text-red-300/90">
               {`Slightly outside your ${radiusMiles ?? "?"} mi radius`}
@@ -254,6 +345,20 @@ export function MatchCard({
           </div>
         </div>
       </a>
+      {routeUrl ? (
+        <div className="border-t border-ss-line bg-ss-brand-50 px-3.5 py-3">
+          <a
+            href={routeUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex w-full items-center justify-center gap-2 rounded-[8px] border border-ss-accent/30 bg-ss-accent px-3 py-2.5 text-[0.88rem] font-bold text-white"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <span aria-hidden>↗</span>
+            {labels.routeToSale || "Route to sale"}
+          </a>
+        </div>
+      ) : null}
     </li>
   );
 }

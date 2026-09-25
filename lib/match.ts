@@ -5,7 +5,7 @@
  */
 
 import type { SaleListing } from "./sources/types";
-import { parseWatchIntent } from "./parseWatchIntent";
+import { parseWatchIntent, splitAskKeywords } from "./parseWatchIntent";
 
 export type WatchInput = {
   /** Raw keyword or short phrase */
@@ -35,6 +35,19 @@ export type MatchHit = {
   visionReason?: string;
   visionLabels?: string[];
   photoUrlsUsed?: string[];
+  /** Flip research extras from vision */
+  itemGuess?: string;
+  portable?: boolean | null;
+  flipNotes?: string;
+  valueEstLowUsd?: number | null;
+  valueEstHighUsd?: number | null;
+  /** Resolved flip value estimate for UI / alert gating */
+  flipValueLabel?: string;
+  flipValueMidUsd?: number | null;
+  flipValueSource?: "ebay" | "vision" | "heuristic" | "none";
+  ebayConfigured?: boolean;
+  ebayCompsNote?: string;
+  sellThroughPct?: number | null;
 };
 
 /** Grounded synonym sets — OR'd; keep short, not endless. */
@@ -154,8 +167,12 @@ export function watchTerms(text: string): {
   excludeAuctions: boolean;
 } {
   const parsed = parseWatchIntent(text);
-  const keywords =
-    parsed.keywords.length > 0
+  const split = splitAskKeywords(text);
+  // Commas mean every ask is searched. Do not keep only the first word.
+  const hasList = /[,;]|\.(?=\s)|\band\b|\bor\b/i.test(text);
+  const keywords = hasList && split.length > 0
+    ? split
+    : parsed.keywords.length > 0
       ? parsed.keywords
       : text.trim()
         ? [text.trim()]
@@ -206,6 +223,20 @@ export function matchListings(
 
   for (const listing of listings) {
     for (const watch of watches) {
+      const rawWatch = watch.text.trim();
+      if (rawWatch === "*" || /^anything$/i.test(rawWatch)) {
+        if (watch.excludeAuctions && listing.isAuction) continue;
+        hits.push({
+          listing,
+          matchedWatch: watch.text,
+          matchedKeywords: ["anything"],
+          score: 1,
+          fields: ["title"],
+          outsideRadius: outsideMap?.get(listing.id) ?? false,
+          matchSource: "text",
+        });
+        continue;
+      }
       const { keywords, excludeAuctions } = watchTerms(watch.text);
       const skipAuctions = watch.excludeAuctions ?? excludeAuctions;
       if (skipAuctions && listing.isAuction) continue;

@@ -58,8 +58,6 @@ export type FetchCachedOptions = {
   body?: string;
   /** Skip cache read/write */
   noCache?: boolean;
-  /** Abort fetch after this many ms (default 20s; cron uses ~14s) */
-  timeoutMs?: number;
 };
 
 export async function fetchCached(
@@ -83,10 +81,6 @@ export async function fetchCached(
 
   await rateLimit(opts.rateKey || "outbound", { maxRequests: 1, windowMs: 1200 });
 
-  const timeoutMs = Math.min(
-    60_000,
-    Math.max(1_000, opts.timeoutMs ?? 20_000)
-  );
   const res = await fetch(url, {
     method: opts.method || "GET",
     headers: {
@@ -95,7 +89,7 @@ export async function fetchCached(
       ...(opts.headers || {}),
     },
     body: opts.body,
-    signal: AbortSignal.timeout(timeoutMs),
+    signal: AbortSignal.timeout(20_000),
     cache: "no-store",
   });
 

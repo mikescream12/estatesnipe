@@ -53,3 +53,35 @@ export function gateScanAccess(
     tier: !enforced ? "ungated" : pro ? "pro" : "free",
   };
 }
+
+/**
+ * Interactive hunt searches use the miles the user just asked for (already
+ * clamped to 1–100). Cron and other unattended scans keep the free-plan cap.
+ * `honoredPastFreeCap` is true when a free account would have been clamped
+ * and we searched the wider radius anyway.
+ */
+export function resolveScanRadius(
+  requestedRadius: number,
+  billing: ScanBillingInput | undefined,
+  paywallDefault: boolean,
+  honorRadius: boolean
+): {
+  enforced: boolean;
+  pro: boolean;
+  radiusMiles: number;
+  radiusCapped: boolean;
+  allowVision: boolean;
+  tier: PlanTier;
+  honoredPastFreeCap: boolean;
+} {
+  const access = gateScanAccess(requestedRadius, billing, paywallDefault);
+  if (!honorRadius) {
+    return { ...access, honoredPastFreeCap: false };
+  }
+  return {
+    ...access,
+    radiusMiles: requestedRadius,
+    radiusCapped: false,
+    honoredPastFreeCap: access.radiusCapped,
+  };
+}

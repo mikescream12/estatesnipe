@@ -1,15 +1,20 @@
 @import "tailwindcss";
 
+/* Rummage-inspired cream + teal tokens (EstateSnipe product, not a clone) */
 :root {
-  --bg: #0f1115;
-  --card: #1a1d24;
-  --text: #f4f5f7;
-  --muted: #9aa3b2;
-  --accent: #e8a54b;
-  --accent2: #3dd6c6;
-  --line: #2a303b;
-  --danger: #ff6b6b;
-  --input: #12151b;
+  --bg: #faf9f6;
+  --card: #ffffff;
+  --text: #211d17;
+  --muted: #6b6252; /* taupe body */
+  --accent: #0f766e;
+  --accent2: #14b8a6;
+  --line: #e0d8c8;
+  --danger: #dc2626;
+  --input: #fffcf7;
+  --brand-50: #f0fdfa;
+  --brand-100: #ccfbf1;
+  --ink: #211d17;
+  --shadow-soft: 0 8px 28px rgba(33, 29, 23, 0.08);
 }
 
 @theme inline {
@@ -22,6 +27,8 @@
   --color-ss-line: var(--line);
   --color-ss-danger: var(--danger);
   --color-ss-input: var(--input);
+  --color-ss-brand-50: var(--brand-50);
+  --color-ss-brand-100: var(--brand-100);
   --font-sans: var(--font-geist-sans);
 }
 
@@ -36,31 +43,53 @@ body {
 
 body {
   margin: 0;
-  background: radial-gradient(1200px 600px at 50% -10%, #243049 0%, var(--bg) 55%);
+  background: var(--bg);
   color: var(--text);
-  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system,
+    Segoe UI, Roboto, Helvetica, Arial, sans-serif;
 }
 
 input[type="text"],
 input[type="tel"],
 input[type="email"],
-input[type="number"] {
+input[type="number"],
+select {
   width: 100%;
   background: var(--input);
   border: 1px solid var(--line);
   color: var(--text);
-  border-radius: 12px;
+  border-radius: 10px;
   padding: 12px 14px;
   font-size: 1rem;
   outline: none;
 }
 
-input:focus {
+input:focus,
+select:focus,
+textarea:focus {
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.15);
 }
 
 input::placeholder {
-  color: #6b7383;
+  color: #9c9280;
+}
+
+textarea {
+  width: 100%;
+  background: var(--input);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 16px;
+  outline: none;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+textarea::placeholder {
+  color: #9c9280;
 }
 
 label.field-label {
@@ -70,4 +99,34 @@ label.field-label {
   margin-bottom: 6px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  font-weight: 700;
+}
+
+/* Soft primary CTA — teal pill/button */
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  border-radius: 8px;
+  font-weight: 700;
+  box-shadow: 0 6px 18px rgba(15, 118, 110, 0.25);
+}
+
+.btn-ink {
+  background: var(--ink);
+  color: #fff;
+  border-radius: 8px;
+  font-weight: 700;
+  box-shadow: 0 6px 18px rgba(33, 29, 23, 0.22);
+}
+
+.btn-ink:hover {
+  background: #332e24;
+}
+
+.btn-primary:hover {
+  background: #0d9488;
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
 }

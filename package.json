@@ -8,13 +8,15 @@
     "start": "next start",
     "lint": "eslint",
     "eval:vision": "npx --yes tsx scripts/eval-vision.ts",
-    "check:geo": "npx --yes tsx scripts/check-geo.ts"
+    "check:geo": "npx --yes tsx scripts/check-geo.ts",
+    "check:hunt": "npx --yes tsx scripts/check-hunt.ts"
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20.19.43",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@vercel/blob": "^2.8.0",
     "next": "^16.3.5",
     "react": "19.1.0",
     "react-dom": "19.1.0",

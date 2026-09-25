@@ -5,8 +5,9 @@ import { useRouter } from "next/navigation";
 import { CATEGORY_KEYS, CHIP_KEYS, type CategoryKey, type ChipKey } from "@/lib/i18n";
 import { useLocale } from "@/lib/LocaleContext";
 import { preferredZip } from "@/lib/geoPure";
-import { parseWatchIntent } from "@/lib/parseWatchIntent";
+import { parseWatchIntent, splitAskKeywords } from "@/lib/parseWatchIntent";
 import { addWatches, loadProfile, saveProfile } from "@/lib/watches";
+import { pushLocalState } from "@/lib/watchSync";
 import { Chip } from "@/components/Chip";
 
 type Msg = { role: "user" | "assistant"; text: string };
@@ -44,6 +45,7 @@ export function HuntChat({
     const profile = loadProfile();
     if (profile?.zip) setZip(profile.zip);
     if (profile?.radiusMi) setRadiusMi(String(profile.radiusMi));
+    void pushLocalState();
   }, []);
 
   function currentRadius(): number {
@@ -88,15 +90,19 @@ export function HuntChat({
       { role: "assistant", text: parsed.reply },
     ]);
     if (parsed.keywords.length) {
-      setPending(
-        parsed.keywords.map((keyword) => ({
+      // One watch holds the whole list. Commas must not spawn a watch per word.
+      const asks = splitAskKeywords(text);
+      const keyword =
+        asks.length > 1 ? asks.join(", ") : parsed.keywords[0];
+      setPending([
+        {
           keyword,
           zip: activeZip,
           radiusMi: activeRadius,
           excludeAuctions: parsed.excludeAuctions || undefined,
           notes: parsed.notes.length ? parsed.notes : undefined,
-        }))
-      );
+        },
+      ]);
     } else {
       setPending(null);
     }
@@ -114,11 +120,9 @@ export function HuntChat({
     const next = { ...chipOn, [key]: !chipOn[key] };
     setChipOn(next);
     const labels = CHIP_KEYS.filter((k) => next[k]).map((k) => messages[k]);
-    if (!labels.length) {
-      setPending(null);
-      return;
-    }
-    applyParsed(labels.join(locale === "es" ? " y " : " and "));
+    // Fill composer only — user edits, then taps Send.
+    setInput(labels.join(locale === "es" ? " y " : " and "));
+    setPending(null);
   }
 
   function confirm() {
@@ -157,6 +161,7 @@ export function HuntChat({
         consentMarketing: false,
       });
     }
+    void pushLocalState();
     setMsgs((m) => [
       ...m,
       { role: "assistant", text: messages.chatConfirmDone },
@@ -198,14 +203,14 @@ export function HuntChat({
         </label>
       </div>
 
-      <div className="flex max-h-[340px] min-h-[180px] flex-col gap-2 overflow-y-auto rounded-[18px] border border-ss-line bg-[#0b0d11] p-3">
+      <div className="flex max-h-[340px] min-h-[180px] flex-col gap-2 overflow-y-auto rounded-[20px] border border-ss-line bg-ss-card p-3.5 shadow-[0_8px_28px_rgba(33,29,23,0.06)]">
         {msgs.map((m, i) => (
           <div
             key={i}
             className={`max-w-[92%] rounded-2xl px-3 py-2 text-[0.9rem] leading-snug ${
               m.role === "user"
-                ? "ml-auto rounded-br-md bg-[#1f6feb] text-white"
-                : "mr-auto rounded-bl-md bg-ss-card text-ss-text"
+                ? "ml-auto rounded-br-md bg-ss-accent text-white"
+                : "mr-auto rounded-bl-md bg-ss-bg text-ss-text ring-1 ring-ss-line"
             }`}
           >
             <div className="mb-0.5 text-[0.68rem] font-semibold opacity-70">
@@ -217,7 +222,7 @@ export function HuntChat({
       </div>
 
       {pending && pending.length > 0 ? (
-        <div className="rounded-[18px] border border-ss-accent2 bg-[rgba(61,214,198,0.08)] p-4">
+        <div className="rounded-[18px] border border-ss-brand-100 bg-ss-brand-50 p-4">
           <div className="mb-2 text-[0.78rem] font-bold uppercase tracking-wide text-ss-accent2">
             {messages.chatConfirmTitle}
           </div>
@@ -228,6 +233,11 @@ export function HuntChat({
                 className="rounded-xl border border-ss-line bg-ss-card px-3 py-2 text-sm"
               >
                 <strong className="text-ss-accent">{w.keyword}</strong>
+                {splitAskKeywords(w.keyword).length > 1 ? (
+                  <div className="mt-0.5 text-[0.72rem] text-ss-accent2">
+                    Any of: {splitAskKeywords(w.keyword).join(" · ")}
+                  </div>
+                ) : null}
                 <span className="text-ss-muted">
                   {" "}
                   · {zip.trim() || w.zip} · {currentRadius()} mi
@@ -243,7 +253,7 @@ export function HuntChat({
           <button
             type="button"
             onClick={confirm}
-            className="w-full rounded-[14px] bg-gradient-to-br from-ss-accent to-[#f0c27b] py-3.5 text-base font-bold text-[#1a1208]"
+            className="btn-primary w-full py-3.5 text-base font-bold"
           >
             {messages.chatConfirmCta}
           </button>
@@ -259,7 +269,7 @@ export function HuntChat({
           onChange={(e) => {
             const key = e.target.value as CategoryKey | "";
             if (!key) return;
-            applyParsed(messages[key]);
+            setInput(messages[key]);
             e.target.value = "";
           }}
         >
@@ -272,19 +282,26 @@ export function HuntChat({
         </select>
       </label>
 
-      <form onSubmit={onSend} className="flex gap-2">
+      <form onSubmit={onSend} className="relative z-20 flex gap-2">
         <input
           type="text"
+          name="hunt"
+          enterKeyHint="send"
+          autoComplete="off"
+          autoCorrect="on"
+          spellCheck
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder={messages.chatPlaceholder}
-          className="flex-1"
+          className="relative z-20 min-w-0 flex-1 basis-0 touch-manipulation select-text text-[16px]"
+          style={{ width: "auto", WebkitUserSelect: "text", pointerEvents: "auto" }}
           aria-label={messages.chatPlaceholder}
-          autoFocus
+          readOnly={false}
+          disabled={false}
         />
         <button
           type="submit"
-          className="shrink-0 rounded-xl bg-gradient-to-br from-ss-accent to-[#f0c27b] px-4 font-bold text-[#1a1208]"
+          className="btn-primary relative z-20 shrink-0 px-4 font-bold"
         >
           {messages.chatSend}
         </button>
